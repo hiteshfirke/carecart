@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appUrl } from "@/lib/appUrl";
 import { z } from "zod";
 import * as db from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
@@ -24,7 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       transitionOrder: db.transitionOrder,
       createPayPalOrder: (input) => createPayPalOrder(input),
       sendEmail,
-      appUrl: process.env.APP_URL ?? new URL(req.url).origin,
+      appUrl: appUrl(req),
       caregiverEmail: household.caregiver.email ?? process.env.DEMO_CAREGIVER_EMAIL ?? null,
       newToken: newCaregiverToken,
     },

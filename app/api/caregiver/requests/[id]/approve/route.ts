@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appUrl } from "@/lib/appUrl";
 import { getHouseholdByUser, getOrder, setPaypalOrderId, transitionOrder } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { createPayPalOrder } from "@/lib/paypal";
@@ -14,7 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       transitionOrder,
       createPayPalOrder: (input) => createPayPalOrder(input),
       setPaypalOrderId,
-      appUrl: process.env.APP_URL ?? new URL(req.url).origin,
+      appUrl: appUrl(req),
     },
     id,
     { household: await currentHousehold(), token },

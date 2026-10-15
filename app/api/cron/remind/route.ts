@@ -1,4 +1,5 @@
 import { getHouseholdByUser, markReminded, ordersNeedingReminder } from "@/lib/db";
+import { appUrl } from "@/lib/appUrl";
 import { sendEmail } from "@/lib/email";
 import { remindCaregivers } from "@/lib/caregiver";
 
@@ -10,7 +11,7 @@ export async function GET(req: Request) {
     householdForUser: getHouseholdByUser,
     markReminded,
     sendEmail,
-    appUrl: process.env.APP_URL ?? new URL(req.url).origin,
+    appUrl: appUrl(req),
     fallbackEmail: process.env.DEMO_CAREGIVER_EMAIL ?? null,
   });
   return Response.json({ sent });
