@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // cacheComponents is off: every CareCart page is per-visitor (cookie-based) and rendered at request time.
   turbopack: {
     rules: {
       "*.css": {
