@@ -5,8 +5,8 @@ import type { Order, OrderPatch } from "./db";
 import type { OrderStatus } from "./orders/state";
 import { checkTransition } from "./orders/state";
 
-function setup(status: OrderStatus, over: { payerRole?: "senior" | "caregiver"; capture?: () => Promise<{ orderStatus: string; captureId: string | null; captureStatus: string | null }>; verified?: boolean } = {}) {
-  const order = { id: "o1", status, payerRole: over.payerRole ?? "senior", paypalOrderId: "PP1" } as Order;
+function setup(status: OrderStatus, over: { caregiverToken?: string | null; payerRole?: "senior" | "caregiver"; capture?: () => Promise<{ orderStatus: string; captureId: string | null; captureStatus: string | null }>; verified?: boolean } = {}) {
+  const order = { id: "o1", status, payerRole: over.payerRole ?? "senior", paypalOrderId: "PP1", caregiverToken: over.caregiverToken ?? null } as Order;
   const transitions: { to: OrderStatus; patch?: OrderPatch }[] = [];
   const captures: { id: string; requestId: string }[] = [];
   const deps: PaymentDeps = {
@@ -49,6 +49,11 @@ describe("handleReturn", () => {
   it("sends the caregiver back to the request page", async () => {
     const { deps } = setup("AWAITING_PAYMENT", { payerRole: "caregiver" });
     expect(await handleReturn(deps, "PP1")).toBe("/caregiver/requests/o1?payment=paid");
+  });
+
+  it("keeps the caregiver's link token so Anna can see the result without the cookie", async () => {
+    const { deps } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", caregiverToken: "a b" });
+    expect(await handleReturn(deps, "PP1")).toBe("/caregiver/requests/o1?payment=paid&t=a%20b");
   });
 
   it("cancels when PayPal declines the capture", async () => {

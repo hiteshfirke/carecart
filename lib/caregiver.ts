@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type TransitionOutcome } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
 import { statusWords } from "@/lib/orders/view";
@@ -15,10 +16,31 @@ export type CaregiverDeps = {
 
 export type ApproveResult = { ok: true; approveUrl: string } | { ok: false; message: string };
 
-export async function approveRequest(deps: CaregiverDeps, orderId: string): Promise<ApproveResult> {
+// Who is asking: the household cookie (Anna on the demo dashboard) and/or the token from her email link.
+export type Viewer = { household: Household | null; token: string | null };
+
+export function newCaregiverToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function caregiverLink(appUrl: string, order: Pick<Order, "id" | "caregiverToken">): string {
+  const base = `${appUrl}/caregiver/requests/${order.id}`;
+  return order.caregiverToken ? `${base}?t=${encodeURIComponent(order.caregiverToken)}` : base;
+}
+
+export function canActOnRequest(order: Pick<Order, "userId" | "caregiverToken">, viewer: Viewer): boolean {
+  if (viewer.household && viewer.household.senior.id === order.userId) return true;
+  if (!viewer.token || !order.caregiverToken) return false;
+  const given = Buffer.from(viewer.token);
+  const expected = Buffer.from(order.caregiverToken);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+export async function approveRequest(deps: CaregiverDeps, orderId: string, viewer: Viewer): Promise<ApproveResult> {
   const order = await deps.getOrder(orderId);
-  const household = order ? await deps.householdForUser(order.userId) : null;
-  if (!order || !household) return { ok: false, message: "This request was not found." };
+  if (!order || !canActOnRequest(order, viewer)) return { ok: false, message: "This request was not found." };
+  const household = await deps.householdForUser(order.userId);
+  if (!household) return { ok: false, message: "This request was not found." };
   const resuming = order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver";
   if (order.status !== "AWAITING_CAREGIVER" && !resuming) {
     return { ok: false, message: `This request is already ${statusWords(order.status, household.caregiver.name)}.` };
@@ -49,9 +71,14 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string): Prom
   return { ok: true, approveUrl: paypal.approveUrl };
 }
 
-export async function declineRequest(deps: Pick<CaregiverDeps, "getOrder" | "transitionOrder">, orderId: string, reason: string): Promise<boolean> {
+export async function declineRequest(
+  deps: Pick<CaregiverDeps, "getOrder" | "transitionOrder">,
+  orderId: string,
+  reason: string,
+  viewer: Viewer,
+): Promise<boolean> {
   const order = await deps.getOrder(orderId);
-  if (!order || order.status !== "AWAITING_CAREGIVER") return false;
+  if (!order || !canActOnRequest(order, viewer) || order.status !== "AWAITING_CAREGIVER") return false;
   const outcome = await deps.transitionOrder(order.id, "DECLINED", "caregiver", { declineReason: reason.trim().slice(0, 200) || "No reason given" });
   return outcome?.result === "applied";
 }
@@ -71,7 +98,7 @@ export async function remindCaregivers(deps: ReminderDeps): Promise<number> {
     const household = await deps.householdForUser(order.userId);
     const to = household?.caregiver.email ?? deps.fallbackEmail;
     if (!household || !to) continue;
-    const ok = await deps.sendEmail({ to, ...reminderEmail(order, household.senior, `${deps.appUrl}/caregiver/requests/${order.id}`) });
+    const ok = await deps.sendEmail({ to, ...reminderEmail(order, household.senior, caregiverLink(deps.appUrl, order)) });
     if (ok) {
       await deps.markReminded(order.id);
       sent++;

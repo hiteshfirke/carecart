@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getHouseholdByUser, getOrder, userUtterances } from "@/lib/db";
+import { currentHousehold } from "@/lib/demo";
+import { canActOnRequest } from "@/lib/caregiver";
 import { formatUsd } from "@/lib/money";
 import { toOrderView } from "@/lib/orders/view";
 
@@ -16,13 +18,15 @@ export default async function RequestPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ payment?: string; error?: string }>;
+  searchParams: Promise<{ payment?: string; error?: string; t?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const order = await getOrder(id);
-  const household = order ? await getHouseholdByUser(order.userId) : null;
-  if (!order || !household) notFound();
+  // Only the household's own cookie or the token from Anna's email link may see or act on a request.
+  if (!order || !canActOnRequest(order, { household: await currentHousehold(), token: sp.t ?? null })) notFound();
+  const household = await getHouseholdByUser(order.userId);
+  if (!household) notFound();
 
   const { senior, caregiver } = household;
   const view = toOrderView(order, caregiver.name);
@@ -84,6 +88,7 @@ export default async function RequestPage({
 
       {canApprove ? (
         <form action={`/api/caregiver/requests/${order.id}/approve`} method="post">
+          {sp.t ? <input type="hidden" name="t" value={sp.t} /> : null}
           <button type="submit" className="btn btn-primary w-full">
             Approve and pay with PayPal
           </button>
@@ -91,6 +96,7 @@ export default async function RequestPage({
       ) : null}
       {order.status === "AWAITING_CAREGIVER" ? (
         <form action={`/api/caregiver/requests/${order.id}/decline`} method="post" className="flex flex-col gap-2">
+          {sp.t ? <input type="hidden" name="t" value={sp.t} /> : null}
           <label htmlFor="reason">Reason for {senior.name} (optional)</label>
           <textarea id="reason" name="reason" maxLength={200} rows={2} className="field py-2" />
           <button type="submit" className="btn btn-danger">

@@ -6,6 +6,7 @@ import { assessRisk } from "@/lib/risk";
 import { createPayPalOrder } from "@/lib/paypal";
 import { sendEmail } from "@/lib/email";
 import { confirmOrder } from "@/lib/confirm";
+import { newCaregiverToken } from "@/lib/caregiver";
 
 const Body = z.object({ duplicateAcknowledged: z.boolean().optional() });
 
@@ -25,6 +26,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       sendEmail,
       appUrl: process.env.APP_URL ?? new URL(req.url).origin,
       caregiverEmail: household.caregiver.email ?? process.env.DEMO_CAREGIVER_EMAIL ?? null,
+      newToken: newCaregiverToken,
     },
     household,
     id,

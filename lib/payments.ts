@@ -20,7 +20,10 @@ export const defaultPaymentDeps: PaymentDeps = {
 
 export function landingFor(order: Order | null, result: PaymentResult): string {
   if (!order) return `/?payment=${result}`;
-  if (order.payerRole === "caregiver") return `/caregiver/requests/${order.id}?payment=${result}`;
+  if (order.payerRole === "caregiver") {
+    const token = order.caregiverToken ? `&t=${encodeURIComponent(order.caregiverToken)}` : "";
+    return `/caregiver/requests/${order.id}?payment=${result}${token}`;
+  }
   return `/talk?order=${order.id}&payment=${result}`;
 }
 

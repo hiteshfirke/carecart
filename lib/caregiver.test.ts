@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approveRequest, declineRequest, remindCaregivers, type CaregiverDeps } from "./caregiver";
+import { approveRequest, canActOnRequest, declineRequest, remindCaregivers, type CaregiverDeps } from "./caregiver";
 import { DEMO_ADDRESS, type Household, type Order } from "./db";
 import { checkTransition, type OrderStatus } from "./orders/state";
 
@@ -8,6 +8,28 @@ const household: Household = {
   senior: { id: "rose", householdId: "h1", role: "senior", name: "Rose", email: null, address: DEMO_ADDRESS, selfPayLimitCents: 2500, dailyCapCents: 6000 },
   caregiver: { id: "anna", householdId: "h1", role: "caregiver", name: "Anna", email: "anna@example.com", address: null, selfPayLimitCents: 2500, dailyCapCents: 6000 },
 };
+
+const owner = { household, token: null };
+const TOKEN = "t".repeat(43);
+
+describe("canActOnRequest", () => {
+  const order = { userId: "rose", caregiverToken: TOKEN } as Order;
+  it("allows the household that owns the order (cookie)", () => {
+    expect(canActOnRequest(order, owner)).toBe(true);
+  });
+  it("allows the matching caregiver token from the email link", () => {
+    expect(canActOnRequest(order, { household: null, token: TOKEN })).toBe(true);
+  });
+  it("rejects a wrong, short or missing token and other households", () => {
+    expect(canActOnRequest(order, { household: null, token: "u".repeat(43) })).toBe(false);
+    expect(canActOnRequest(order, { household: null, token: "short" })).toBe(false);
+    expect(canActOnRequest(order, { household: null, token: null })).toBe(false);
+    expect(canActOnRequest(order, { household: { ...household, senior: { ...household.senior, id: "someone-else" } }, token: null })).toBe(false);
+  });
+  it("rejects any token when the order has none", () => {
+    expect(canActOnRequest({ userId: "rose", caregiverToken: null } as Order, { household: null, token: TOKEN })).toBe(false);
+  });
+});
 
 function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null; paypalOrderId?: string | null } = {}) {
   const order = {
@@ -42,40 +64,46 @@ function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "
 describe("approveRequest", () => {
   it("creates Anna's PayPal order and moves to AWAITING_PAYMENT", async () => {
     const { deps, calls } = setup("AWAITING_CAREGIVER");
-    expect(await approveRequest(deps, "o1")).toEqual({ ok: true, approveUrl: "https://paypal.test/approve/PP9" });
+    expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: true, approveUrl: "https://paypal.test/approve/PP9" });
     expect(calls.paypal).toEqual(["create-o1-caregiver"]);
     expect(calls.to).toEqual(["AWAITING_PAYMENT"]);
   });
 
   it("lets Anna resume an unfinished payment with the same PayPal order", async () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver" });
-    expect((await approveRequest(deps, "o1")).ok).toBe(true);
+    expect((await approveRequest(deps, "o1", owner)).ok).toBe(true);
     expect(calls.paypal).toEqual(["create-o1-caregiver"]);
     expect(calls.to).toEqual([]);
   });
 
   it("saves a new PayPal order id when PayPal issues a fresh order on resume", async () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP-old" });
-    expect((await approveRequest(deps, "o1")).ok).toBe(true);
+    expect((await approveRequest(deps, "o1", owner)).ok).toBe(true);
     expect(calls.saved).toEqual([["o1", "PP9"]]);
   });
 
   it("does not rewrite the PayPal id when PayPal returns the same order", async () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP9" });
-    await approveRequest(deps, "o1");
+    await approveRequest(deps, "o1", owner);
     expect(calls.saved).toEqual([]);
   });
 
   it("refuses a declined or blocked request", async () => {
     for (const s of ["DECLINED", "BLOCKED"] as const) {
-      const result = await approveRequest(setup(s).deps, "o1");
+      const result = await approveRequest(setup(s).deps, "o1", owner);
       expect(result.ok).toBe(false);
     }
   });
 
+  it("refuses someone who has neither the household cookie nor the token", async () => {
+    const { deps, calls } = setup("AWAITING_CAREGIVER");
+    expect((await approveRequest(deps, "o1", { household: null, token: null })).ok).toBe(false);
+    expect(calls.paypal).toEqual([]);
+  });
+
   it("leaves the request waiting when PayPal is down", async () => {
     const { deps, calls } = setup("AWAITING_CAREGIVER", { paypalFails: true });
-    expect((await approveRequest(deps, "o1")).ok).toBe(false);
+    expect((await approveRequest(deps, "o1", owner)).ok).toBe(false);
     expect(calls.to).toEqual([]);
   });
 });
@@ -83,11 +111,16 @@ describe("approveRequest", () => {
 describe("declineRequest", () => {
   it("declines with a trimmed reason", async () => {
     const { deps, calls } = setup("AWAITING_CAREGIVER");
-    expect(await declineRequest(deps, "o1", "  Let's buy it together  ")).toBe(true);
+    expect(await declineRequest(deps, "o1", "  Let's buy it together  ", owner)).toBe(true);
     expect(calls.to).toEqual(["DECLINED"]);
   });
+  it("refuses a decline without the cookie or token", async () => {
+    const { deps, calls } = setup("AWAITING_CAREGIVER");
+    expect(await declineRequest(deps, "o1", "x", { household: null, token: "nope" })).toBe(false);
+    expect(calls.to).toEqual([]);
+  });
   it("does nothing for a request that is no longer waiting", async () => {
-    expect(await declineRequest(setup("PAID").deps, "o1", "x")).toBe(false);
+    expect(await declineRequest(setup("PAID").deps, "o1", "x", owner)).toBe(false);
   });
 });
 
@@ -95,14 +128,16 @@ describe("remindCaregivers", () => {
   it("emails once per waiting order and marks it reminded", async () => {
     const marked: string[] = [];
     const sent: string[] = [];
+    const links: string[] = [];
     const count = await remindCaregivers({
-      ordersNeedingReminder: async () => [{ id: "o1", userId: "rose", product: { title: "Monitor" }, totalCents: 6500, merchant: "walmart.com", flags: [], summary: null } as unknown as Order],
+      ordersNeedingReminder: async () => [{ id: "o1", userId: "rose", caregiverToken: "tok123", product: { title: "Monitor" }, totalCents: 6500, merchant: "walmart.com", flags: [], summary: null } as unknown as Order],
       householdForUser: async () => household,
       markReminded: async (id) => {
         marked.push(id);
       },
       sendEmail: async (m) => {
         sent.push(m.to);
+        links.push(m.html);
         return true;
       },
       appUrl: "https://app.test",
@@ -111,5 +146,6 @@ describe("remindCaregivers", () => {
     expect(count).toBe(1);
     expect(sent).toEqual(["anna@example.com"]);
     expect(marked).toEqual(["o1"]);
+    expect(links[0]).toContain("https://app.test/caregiver/requests/o1?t=tok123");
   });
 });

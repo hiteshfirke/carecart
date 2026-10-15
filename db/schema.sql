@@ -52,9 +52,13 @@ create table if not exists orders (
   capture_id text,
   tracking jsonb,
   reminded_at timestamptz,
+  caregiver_token text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Databases created before the caregiver token existed.
+alter table orders add column if not exists caregiver_token text;
 
 create index if not exists orders_user_idx on orders (user_id, created_at desc);
 

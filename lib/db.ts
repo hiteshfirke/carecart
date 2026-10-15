@@ -48,6 +48,7 @@ export type Order = {
   paypalOrderId: string | null;
   captureId: string | null;
   tracking: Tracking | null;
+  caregiverToken: string | null;
   remindedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -55,7 +56,7 @@ export type Order = {
 export type Session = { id: string; userId: string; lastOptions: ProductOption[]; turns: number };
 export type ChatMessage = { role: "user" | "assistant"; text: string };
 export type OrderPatch = Partial<
-  Pick<Order, "route" | "flags" | "aiRisk" | "summary" | "declineReason" | "payerRole" | "paypalOrderId" | "captureId" | "tracking">
+  Pick<Order, "route" | "flags" | "aiRisk" | "summary" | "declineReason" | "payerRole" | "paypalOrderId" | "captureId" | "tracking" | "caregiverToken">
 >;
 export type TransitionOutcome = { result: "applied" | "noop" | "rejected"; order: Order };
 
@@ -102,6 +103,7 @@ function toOrder(r: Row): Order {
     paypalOrderId: (r.paypal_order_id as string | null) ?? null,
     captureId: (r.capture_id as string | null) ?? null,
     tracking: (r.tracking as Tracking | null) ?? null,
+    caregiverToken: (r.caregiver_token as string | null) ?? null,
     remindedAt: r.reminded_at ? date(r.reminded_at) : null,
     createdAt: date(r.created_at),
     updatedAt: date(r.updated_at),
@@ -260,6 +262,7 @@ export async function transitionOrder(id: string, to: OrderStatus, actor: string
       paypal_order_id = coalesce(${patch.paypalOrderId ?? null}, paypal_order_id),
       capture_id = coalesce(${patch.captureId ?? null}, capture_id),
       tracking = coalesce(${json(patch.tracking)}::jsonb, tracking),
+      caregiver_token = coalesce(${patch.caregiverToken ?? null}, caregiver_token),
       updated_at = now()
     where id = ${id} and status = ${current.status}
     returning *`) as Row[];

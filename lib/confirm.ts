@@ -15,6 +15,7 @@ export type ConfirmDeps = {
   sendEmail: SendEmail;
   appUrl: string;
   caregiverEmail: string | null;
+  newToken(): string;
 };
 
 export type ConfirmOutcome =
@@ -91,9 +92,9 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
     };
   }
 
-  await deps.transitionOrder(order.id, "AWAITING_CAREGIVER", "rules");
-  const emailed = deps.caregiverEmail
-    ? await deps.sendEmail({ to: deps.caregiverEmail, ...requestEmail(forEmail, senior, `${deps.appUrl}/caregiver/requests/${order.id}`) })
-    : false;
+  const caregiverToken = deps.newToken();
+  await deps.transitionOrder(order.id, "AWAITING_CAREGIVER", "rules", { caregiverToken });
+  const link = `${deps.appUrl}/caregiver/requests/${order.id}?t=${encodeURIComponent(caregiverToken)}`;
+  const emailed = deps.caregiverEmail ? await deps.sendEmail({ to: deps.caregiverEmail, ...requestEmail(forEmail, senior, link) }) : false;
   return { outcome: "caregiver", caregiverName: caregiver.name, emailed };
 }

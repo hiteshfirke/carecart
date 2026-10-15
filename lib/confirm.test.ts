@@ -23,7 +23,7 @@ function setup(over: {
     id: "o1", userId: "rose", sessionId: "s1",
     product: { productId: "p1", title: "Green Tea", priceCents: 1000, merchant: "walmart.com", url: "u", imageUrl: null, imageAlt: "tea", rating: null, category: null },
     quantity: 1, totalCents: 1000, merchant: "walmart.com", status: "DRAFT", route: null, flags: [], aiRisk: null, summary: null,
-    declineReason: null, payerRole: null, paypalOrderId: null, captureId: null, tracking: null, remindedAt: null,
+    declineReason: null, payerRole: null, paypalOrderId: null, captureId: null, tracking: null, caregiverToken: null, remindedAt: null,
     createdAt: new Date(), updatedAt: new Date(),
     ...over.order,
   };
@@ -50,6 +50,7 @@ function setup(over: {
     },
     appUrl: "https://app.test",
     caregiverEmail: "anna@example.com",
+    newToken: () => "TOKEN123",
   };
   return { deps, transitions, emails, paypalCalls };
 }
@@ -80,7 +81,8 @@ describe("confirmOrder", () => {
     expect(transitions[0].patch?.route).toBe("caregiver");
     expect(transitions[0].patch?.summary).toBe("Rose wants green tea.");
     expect(emails[0].to).toBe("anna@example.com");
-    expect(emails[0].html).toContain("https://app.test/caregiver/requests/o1");
+    expect(emails[0].html).toContain("https://app.test/caregiver/requests/o1?t=TOKEN123");
+    expect(transitions[1]).toMatchObject({ to: "AWAITING_CAREGIVER", patch: { caregiverToken: "TOKEN123" } });
     expect(paypalCalls).toHaveLength(0);
   });
 
