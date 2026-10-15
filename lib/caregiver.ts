@@ -9,6 +9,7 @@ export type CaregiverDeps = {
   householdForUser(userId: string): Promise<Household | null>;
   transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
+  setPaypalOrderId(id: string, paypalOrderId: string): Promise<void>;
   appUrl: string;
 };
 
@@ -41,6 +42,9 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string): Prom
   }
   if (!resuming) {
     await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "caregiver", { paypalOrderId: paypal.paypalOrderId, payerRole: "caregiver" });
+  } else if (paypal.paypalOrderId !== order.paypalOrderId) {
+    // PayPal forgets idempotency keys after a while and may issue a new order; the return page must find it.
+    await deps.setPaypalOrderId(order.id, paypal.paypalOrderId);
   }
   return { ok: true, approveUrl: paypal.approveUrl };
 }

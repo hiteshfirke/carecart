@@ -9,12 +9,12 @@ const household: Household = {
   caregiver: { id: "anna", householdId: "h1", role: "caregiver", name: "Anna", email: "anna@example.com", address: null, selfPayLimitCents: 2500, dailyCapCents: 6000 },
 };
 
-function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null } = {}) {
+function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null; paypalOrderId?: string | null } = {}) {
   const order = {
-    id: "o1", userId: "rose", status, payerRole: opts.payerRole ?? null, quantity: 1, totalCents: 6500,
+    id: "o1", userId: "rose", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
     product: { productId: "p", title: "Monitor", priceCents: 6500, merchant: "walmart.com" },
   } as Order;
-  const calls: { paypal: string[]; to: OrderStatus[] } = { paypal: [], to: [] };
+  const calls: { paypal: string[]; to: OrderStatus[]; saved: [string, string][] } = { paypal: [], to: [], saved: [] };
   const deps: CaregiverDeps = {
     getOrder: async (id) => (id === "o1" ? order : null),
     householdForUser: async () => household,
@@ -30,6 +30,9 @@ function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "
       calls.paypal.push(input.requestId);
       if (opts.paypalFails) throw new Error("down");
       return { paypalOrderId: "PP9", approveUrl: "https://paypal.test/approve/PP9" };
+    },
+    setPaypalOrderId: async (id, paypalOrderId) => {
+      calls.saved.push([id, paypalOrderId]);
     },
     appUrl: "https://app.test",
   };
@@ -49,6 +52,18 @@ describe("approveRequest", () => {
     expect((await approveRequest(deps, "o1")).ok).toBe(true);
     expect(calls.paypal).toEqual(["create-o1-caregiver"]);
     expect(calls.to).toEqual([]);
+  });
+
+  it("saves a new PayPal order id when PayPal issues a fresh order on resume", async () => {
+    const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP-old" });
+    expect((await approveRequest(deps, "o1")).ok).toBe(true);
+    expect(calls.saved).toEqual([["o1", "PP9"]]);
+  });
+
+  it("does not rewrite the PayPal id when PayPal returns the same order", async () => {
+    const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP9" });
+    await approveRequest(deps, "o1");
+    expect(calls.saved).toEqual([]);
   });
 
   it("refuses a declined or blocked request", async () => {

@@ -274,6 +274,11 @@ export async function transitionOrder(id: string, to: OrderStatus, actor: string
   return { result: "applied", order: toOrder(rows[0]) };
 }
 
+export async function setPaypalOrderId(id: string, paypalOrderId: string): Promise<void> {
+  await sql()`update orders set paypal_order_id = ${paypalOrderId}, updated_at = now()
+              where id = ${id} and status = 'AWAITING_PAYMENT' and payer_role = 'caregiver'`;
+}
+
 export async function ruleHistory(userId: string, productId: string, excludingOrderId: string): Promise<RuleHistory> {
   const paid = (await sql()`
     select total_cents, merchant, created_at from orders
