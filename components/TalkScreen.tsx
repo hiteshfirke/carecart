@@ -42,6 +42,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const readBackHeading = useRef<HTMLHeadingElement>(null);
   const handleTextRef = useRef<(text: string) => void>(() => {});
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reads browser-only state after mount
   useEffect(() => setSettings(loadSettings()), []);
 
   const speech = useSpeech({ onText: (t) => handleTextRef.current(t), rate: settings.rate, muted: settings.screenReader });

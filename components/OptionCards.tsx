@@ -4,20 +4,20 @@ import type { RefObject } from "react";
 import type { OptionView } from "@/lib/orders/view";
 import { formatUsd } from "@/lib/money";
 
-export function OptionCards(props: { options: OptionView[]; headingRef: RefObject<HTMLHeadingElement | null>; onPick: (index: number) => void }) {
+export function OptionCards({ options, headingRef, onPick }: { options: OptionView[]; headingRef: RefObject<HTMLHeadingElement | null>; onPick: (index: number) => void }) {
   return (
     <section aria-labelledby="options-h">
-      <h2 id="options-h" ref={props.headingRef} tabIndex={-1} className="text-[1.3rem] font-bold">
+      <h2 id="options-h" ref={headingRef} tabIndex={-1} className="text-[1.3rem] font-bold">
         Pick one (press 1, 2 or 3)
       </h2>
       <ol className="mt-2 grid gap-3">
-        {props.options.map((o, i) => (
+        {options.map((o, i) => (
           <li key={i}>
             <button
               type="button"
               className="btn flex w-full items-center gap-4 text-left"
               aria-label={`Option ${i + 1}: ${o.title}, ${o.priceWords}, from ${o.merchant}`}
-              onClick={() => props.onPick(i)}
+              onClick={() => onPick(i)}
             >
               {o.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element

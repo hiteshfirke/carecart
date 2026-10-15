@@ -34,6 +34,7 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     onText.current = opts.onText;
   }, [opts.onText]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads browser-only state after mount
     setSupported(recognitionCtor() !== null);
   }, []);
 
