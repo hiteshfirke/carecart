@@ -159,6 +159,11 @@ export async function getHousehold(id: string): Promise<Household | null> {
   return { id, senior: toUser(senior), caregiver: toUser(caregiver) };
 }
 
+export async function getHouseholdByUser(userId: string): Promise<Household | null> {
+  const rows = (await sql()`select household_id from users where id = ${userId}`) as Row[];
+  return rows[0] ? getHousehold(rows[0].household_id as string) : null;
+}
+
 export async function updateLimits(seniorId: string, selfPayLimitCents: number, dailyCapCents: number): Promise<void> {
   await sql()`update users set self_pay_limit_cents = ${selfPayLimitCents}, daily_cap_cents = ${dailyCapCents}
               where id = ${seniorId} and role = 'senior'`;
