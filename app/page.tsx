@@ -1,9 +1,16 @@
 import Link from "next/link";
+import { paymentResultMessage } from "@/lib/speech/messages";
 
-export default function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ payment?: string }> }) {
+  const { payment } = await searchParams;
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
       <h1 className="text-[2rem] font-bold">CareCart</h1>
+      {payment ? (
+        <p role="status" className="rounded-2xl border-[3px] p-4 text-[1.15rem]">
+          {paymentResultMessage(null, payment, "your caregiver")}
+        </p>
+      ) : null}
       <p className="text-[1.15rem]">Shop by voice. A safety check and a trusted family member protect every payment.</p>
       <p>This is a demo on the PayPal sandbox. No real money moves.</p>
       <form action="/api/demo/start" method="post" className="flex flex-col gap-3">

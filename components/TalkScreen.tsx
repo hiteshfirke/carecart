@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSpeech } from "@/hooks/useSpeech";
 import { parseCommand, type Mode } from "@/lib/speech/commands";
-import { caregiverSentMessage } from "@/lib/speech/messages";
+import { caregiverSentMessage, paymentResultMessage } from "@/lib/speech/messages";
 import type { OptionView, OrderView } from "@/lib/orders/view";
 import { OptionCards } from "./OptionCards";
 import { ReadBack } from "./ReadBack";
@@ -16,14 +16,6 @@ type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
 type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
 const HELP = 'Tell me what you need, like "I need green tea". You can say "repeat", "slower", "cancel" or "help" at any time.';
-
-function resultMessage(order: OrderView, payment: string, caregiverName: string): string {
-  if (payment === "paid" || order.status === "PAID" || order.status === "SHIPPED") return `Paid ${order.totalWords} for ${order.title}. It's on the way.`;
-  if (payment === "pending") return "PayPal is still checking the payment. I'll tell you when it's done.";
-  if (payment === "cancelled") return "No payment was made. What else do you need?";
-  if (order.status === "DECLINED") return `${caregiverName} said not this time.`;
-  return "The payment didn't go through, so nothing was charged.";
-}
 
 export function TalkScreen(props: { seniorName: string; caregiverName: string; returnedOrderId: string | null; paymentResult: string | null }) {
   const { seniorName, caregiverName, returnedOrderId, paymentResult } = props;
@@ -37,6 +29,8 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const [dupAck, setDupAck] = useState(false);
   const [watch, setWatch] = useState<{ id: string; last: string } | null>(null);
   const [returned, setReturned] = useState<string | null>(null);
+  const [payUrl, setPayUrl] = useState<string | null>(null);
+  const payLink = useRef<HTMLAnchorElement>(null);
   const [typed, setTyped] = useState("");
   const lastHelper = useRef("");
   const optionsHeading = useRef<HTMLHeadingElement>(null);
@@ -65,6 +59,9 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   useEffect(() => {
     if (draft) readBackHeading.current?.focus();
   }, [draft]);
+  useEffect(() => {
+    if (payUrl) payLink.current?.focus();
+  }, [payUrl]);
 
   const callAgent = useCallback(
     async (text: string) => {
@@ -130,8 +127,16 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     }
     switch (out.outcome) {
       case "pay":
+        if (settings.screenReader) {
+          // The app's voice is off, so don't navigate away before the screen reader has read the instructions.
+          setDraft(null);
+          setPhase("idle");
+          setPayUrl(out.approveUrl ?? null);
+          await say("Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.");
+          return;
+        }
         await say("I'm opening PayPal now. Log in, check the total, and press Pay Now. I'll be here when you come back.");
-        window.location.href = out.approveUrl ?? "/talk";
+        window.location.assign(out.approveUrl ?? "/talk");
         return;
       case "caregiver":
         setDraft(null);
@@ -153,7 +158,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         setPhase("confirm");
         await say(out.message ?? "Sorry, something went wrong. Nothing was charged.");
     }
-  }, [draft, dupAck, say]);
+  }, [draft, dupAck, say, settings.screenReader, caregiverName]);
 
   const handleText = useCallback(
     async (raw: string) => {
@@ -235,9 +240,14 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     if (!returnedOrderId || !paymentResult) return;
     void (async () => {
       const res = await fetch(`/api/orders/${returnedOrderId}`).catch(() => null);
-      if (!res?.ok) return;
+      if (!res?.ok) {
+        const message = paymentResultMessage(null, paymentResult, caregiverName);
+        setReturned(message);
+        void say(message);
+        return;
+      }
       const o = (await res.json()) as OrderView;
-      const message = resultMessage(o, paymentResult, caregiverName);
+      const message = paymentResultMessage(o, paymentResult, caregiverName);
       setReturned(message);
       if (paymentResult === "pending") setWatch({ id: o.id, last: o.status });
       void say(message);
@@ -284,6 +294,17 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           saveSettings(s);
         }}
       />
+
+      {payUrl ? (
+        <section aria-labelledby="pay-h" className="flex flex-col gap-2 rounded-2xl border-[3px] p-4">
+          <h2 id="pay-h" className="font-bold">
+            Ready to pay
+          </h2>
+          <a ref={payLink} href={payUrl} className="btn btn-primary inline-flex items-center justify-center">
+            Continue to PayPal
+          </a>
+        </section>
+      ) : null}
 
       {returned ? (
         <section aria-labelledby="result-h" className="flex flex-col gap-2 rounded-2xl border-[3px] p-4">

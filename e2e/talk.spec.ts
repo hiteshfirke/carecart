@@ -78,6 +78,32 @@ test("ambiguous speech at the confirm step does not pay", async ({ page }) => {
   expect(confirmCalls).toBe(0);
 });
 
+test("screen-reader mode shows a focused Continue to PayPal link instead of navigating away", async ({ page }) => {
+  await mockAgent(page);
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => route.fulfill({ json: { outcome: "pay", approveUrl: "https://www.sandbox.paypal.com/checkoutnow?token=PP1" } }));
+  await startAsRose(page);
+  await page.getByRole("button", { name: "Screen reader mode" }).click();
+  const box = page.getByLabel("Or type what you need");
+  await box.fill("I need green tea");
+  await box.press("Enter");
+  await box.fill("option 1");
+  await box.press("Enter");
+  await page.getByRole("button", { name: /confirm/i }).click();
+  await expect(page.getByRole("link", { name: "Continue to PayPal" })).toBeFocused();
+  await expect(page).toHaveURL(/\/talk/);
+});
+
+test("text size buttons' accessible names include their visible text", async ({ page }) => {
+  await startAsRose(page);
+  await expect(page.getByRole("button", { name: "A− smaller text" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "A+ bigger text" })).toBeVisible();
+});
+
+test("an unknown PayPal return still explains what happened", async ({ page }) => {
+  await page.goto("/?payment=unknown");
+  await expect(page.getByRole("status")).toContainText("couldn't check the payment");
+});
+
 test("returning from PayPal shows the result as text with a Tap to hear button", async ({ page }) => {
   await page.route(`**/api/orders/${ORDER}`, (route) => route.fulfill({ json: { ...draft, status: "PAID", statusWords: "paid", payerRole: "senior" } }));
   await startAsRose(page);

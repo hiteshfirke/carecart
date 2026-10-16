@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import type { ProductOption } from "@/lib/channel3";
 import type { AiRisk, Flag, Route, RuleHistory } from "@/lib/safety/rules";
 import { checkTransition, type OrderStatus } from "@/lib/orders/state";
+import { HOUSEHOLD_TIMEZONE, startOfLocalDay } from "@/lib/time";
 
 type Row = Record<string, unknown>;
 type Sql = ReturnType<typeof neon>;
@@ -292,8 +293,7 @@ export async function ruleHistory(userId: string, productId: string, excludingOr
     select total_cents, merchant, created_at from orders
     where user_id = ${userId} and status in ('PAID', 'SHIPPED')
     order by created_at desc limit 50`) as Row[];
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
+  const startOfDay = startOfLocalDay(new Date(), HOUSEHOLD_TIMEZONE);
   const same = (await sql()`
     select created_at from orders
     where user_id = ${userId} and id <> ${excludingOrderId} and product->>'productId' = ${productId}

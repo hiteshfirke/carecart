@@ -30,11 +30,11 @@ export function SettingsBar({ settings, onChange }: { settings: Settings; onChan
 
   return (
     <div role="group" aria-label="Text size and voice settings" className="flex flex-wrap gap-2">
-      <button type="button" className="btn" aria-label="Smaller text" onClick={() => onChange({ ...settings, scale: Math.max(0.9, Number((settings.scale - 0.1).toFixed(1))) })}>
-        A−
+      <button type="button" className="btn" onClick={() => onChange({ ...settings, scale: Math.max(0.9, Number((settings.scale - 0.1).toFixed(1))) })}>
+        A−<span className="sr-only"> smaller text</span>
       </button>
-      <button type="button" className="btn" aria-label="Bigger text" onClick={() => onChange({ ...settings, scale: Math.min(1.6, Number((settings.scale + 0.1).toFixed(1))) })}>
-        A+
+      <button type="button" className="btn" onClick={() => onChange({ ...settings, scale: Math.min(1.6, Number((settings.scale + 0.1).toFixed(1))) })}>
+        A+<span className="sr-only"> bigger text</span>
       </button>
       <button type="button" className="btn" aria-pressed={settings.screenReader} onClick={() => onChange({ ...settings, screenReader: !settings.screenReader })}>
         Screen reader mode
