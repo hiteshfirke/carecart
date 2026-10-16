@@ -71,7 +71,7 @@ export function buildTools(deps: AgentDeps, ctx: TurnContext, out: TurnOutput) {
       name: "search_products",
       description: "Search the store. Returns up to three options with prices in words.",
       inputSchema: z.object({
-        query: z.string().min(1).max(200).describe("What to search for, e.g. 'green tea bags'"),
+        query: z.string().min(1).max(200).describe("What to search for, e.g. 'reading glasses' or 'large print crossword book'"),
         max_price_dollars: z.number().positive().max(10000).optional().describe("Only if they gave a budget"),
       }),
       run: (input) => runSearch(deps, ctx, out, input),

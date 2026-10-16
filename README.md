@@ -9,7 +9,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com).
 
 ## How it works
 
-1. **Rose speaks**: "I need some green tea." (She can also type.)
+1. **Rose speaks**: "I need some reading glasses." (She can also type.)
 2. **The AI finds options**: Claude searches real products through Channel3 and reads three of them aloud, with prices in words.
 3. **The app reads the order back**: item, total and store. Only an exact "confirm" / "yes" or the Confirm button continues.
 4. **Safety rules run**: plain, unit-tested code decides the route.

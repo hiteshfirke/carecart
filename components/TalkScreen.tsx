@@ -15,7 +15,7 @@ type Draft = OrderView & { readBack: string };
 type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
 type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
-const HELP = 'Tell me what you need, like "I need green tea". You can say "repeat", "slower", "cancel" or "help" at any time.';
+const HELP = 'Tell me what you need, like "I need reading glasses". You can say "repeat", "slower", "cancel" or "help" at any time.';
 
 export function TalkScreen(props: { seniorName: string; caregiverName: string; returnedOrderId: string | null; paymentResult: string | null }) {
   const { seniorName, caregiverName, returnedOrderId, paymentResult } = props;

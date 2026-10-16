@@ -29,6 +29,11 @@ async function startAsRose(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /try as rose/i }).click();
   await expect(page).toHaveURL(/\/talk/);
+  // Typing before React hydrates submits the form natively and reloads /talk; wait for React's handlers on the input.
+  await page.waitForFunction(() => {
+    const input = document.getElementById("typed");
+    return !!input && Object.keys(input).some((k) => k.startsWith("__reactProps"));
+  });
 }
 
 test("home page passes axe", async ({ page }) => {

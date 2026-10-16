@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import * as db from "../lib/db";
+import { caregiverLink, newCaregiverToken } from "../lib/caregiver";
 
 const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -18,10 +19,13 @@ test("caregiver reviews and declines a pending request", async ({ page }) => {
     route: "caregiver",
     flags: [{ code: "S2_OVER_SELF_PAY_LIMIT", message: "This is more than your own spending limit." }],
     summary: "Rose wants a blood pressure monitor for $65.",
+    caregiverToken: newCaregiverToken(),
   });
-  await db.transitionOrder(order.id, "AWAITING_CAREGIVER", "test");
+  const moved = await db.transitionOrder(order.id, "AWAITING_CAREGIVER", "test");
+  expect(moved?.result).toBe("applied");
 
-  await page.goto(`/caregiver/requests/${order.id}`);
+  // Anna arrives from her email link, so she has the token but not Rose's household cookie.
+  await page.goto(caregiverLink("", moved!.order));
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Blood Pressure Monitor");
   await expect(page.getByText("Rose wants a blood pressure monitor for $65.")).toBeVisible();
   await expect(page.getByText("I need a blood pressure monitor")).toBeVisible();
