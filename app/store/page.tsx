@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { errorMessage } from "@/lib/errors";
 import { redirect } from "next/navigation";
 import { listOrdersByStatus } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
@@ -14,7 +15,7 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
       <h1 className="text-[1.6rem] font-bold">Demo store: orders to ship</h1>
       <p>This page plays the store. Shipping adds a tracking number to the PayPal order.</p>
       {sp.shipped ? <p role="status" className="font-bold">Shipped. Tracking was added in PayPal.</p> : null}
-      {sp.error ? <p role="alert">{sp.error}</p> : null}
+      {errorMessage(sp.error) ? <p role="alert">{errorMessage(sp.error)}</p> : null}
       {paid.length === 0 ? <p>No paid orders waiting.</p> : null}
       <ul className="flex flex-col gap-3">
         {paid.map((o) => (

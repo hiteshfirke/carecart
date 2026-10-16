@@ -73,7 +73,12 @@ describe("handleReturn", () => {
   });
 
   it("never cancels when the capture might have happened", async () => {
-    for (const err of [new Error("network down"), new PayPalError("x", 500, null, {}), new PayPalError("x", 422, null, { details: [{ issue: "ORDER_ALREADY_CAPTURED" }] })]) {
+    for (const err of [
+      new Error("network down"),
+      new PayPalError("x", 500, null, {}),
+      new PayPalError("x", 422, null, { details: [{ issue: "ORDER_ALREADY_CAPTURED" }] }),
+      new PayPalError("x", 422, null, { details: [{ issue: "SOMETHING_NEW" }] }),
+    ]) {
       const { deps, transitions } = setup("AWAITING_PAYMENT", {
         capture: async () => {
           throw err;

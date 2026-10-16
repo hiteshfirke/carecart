@@ -25,6 +25,11 @@ describe("email templates", () => {
     expect(m.html).toContain("more than your own spending limit");
     expect(m.html).toContain('href="https://app.test/caregiver/requests/o1"');
   });
+  it("labels the AI summary and lists the rule flags before it", () => {
+    const html = requestEmail(order, senior, "https://app.test/x").html;
+    expect(html).toContain("AI summary");
+    expect(html.indexOf("more than your own spending limit")).toBeLessThan(html.indexOf("Rose wants a monitor."));
+  });
   it("builds a scam alert", () => {
     expect(scamAlertEmail(order, senior, "https://app.test/caregiver").subject).toMatch(/scam/i);
   });

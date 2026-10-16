@@ -25,6 +25,13 @@ export type ConfirmOutcome =
   | { outcome: "recheck"; message: string }
   | { outcome: "error"; message: string };
 
+const ALREADY_CONFIRMED: ConfirmOutcome = { outcome: "error", message: "That order was already confirmed." };
+
+// Only the request that actually moves DRAFT → CONFIRMED may email Anna or hand out a PayPal link.
+async function claimConfirm(deps: ConfirmDeps, orderId: string, patch: OrderPatch): Promise<boolean> {
+  return (await deps.transitionOrder(orderId, "CONFIRMED", "senior", patch))?.result === "applied";
+}
+
 export async function confirmOrder(deps: ConfirmDeps, household: Household, orderId: string, duplicateAcknowledged: boolean): Promise<ConfirmOutcome> {
   const { senior, caregiver } = household;
   const order = await deps.getOrder(orderId);
@@ -74,12 +81,12 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
       console.error("PayPal order creation failed", err);
       return { outcome: "error", message: "PayPal isn't answering right now, so nothing was charged. Please try again in a minute." };
     }
-    await deps.transitionOrder(order.id, "CONFIRMED", "senior", confirmPatch);
+    if (!(await claimConfirm(deps, order.id, confirmPatch))) return ALREADY_CONFIRMED;
     await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "system", { paypalOrderId: paypal.paypalOrderId, payerRole: "senior" });
     return { outcome: "pay", approveUrl: paypal.approveUrl };
   }
 
-  await deps.transitionOrder(order.id, "CONFIRMED", "senior", confirmPatch);
+  if (!(await claimConfirm(deps, order.id, confirmPatch))) return ALREADY_CONFIRMED;
   const forEmail: Order = { ...order, flags: result.flags, summary: risk?.caregiverSummary ?? null };
 
   if (result.route === "blocked") {

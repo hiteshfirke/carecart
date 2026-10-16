@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSpeech } from "@/hooks/useSpeech";
 import { parseCommand, type Mode } from "@/lib/speech/commands";
+import { caregiverSentMessage } from "@/lib/speech/messages";
 import type { OptionView, OrderView } from "@/lib/orders/view";
 import { OptionCards } from "./OptionCards";
 import { ReadBack } from "./ReadBack";
@@ -12,7 +13,7 @@ import { DEFAULT_SETTINGS, SettingsBar, loadSettings, saveSettings, type Setting
 type Line = { who: "you" | "helper"; text: string };
 type Draft = OrderView & { readBack: string };
 type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
-type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; reasons?: string[]; message?: string };
+type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
 const HELP = 'Tell me what you need, like "I need green tea". You can say "repeat", "slower", "cancel" or "help" at any time.';
 
@@ -136,7 +137,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         setDraft(null);
         setPhase("waiting");
         setWatch({ id: draft.id, last: "AWAITING_CAREGIVER" });
-        await say(`This one needs ${out.caregiverName}'s OK. I've sent it to ${out.caregiverName}. I'll tell you as soon as there's an answer.`);
+        await say(caregiverSentMessage(out.caregiverName ?? caregiverName, out.emailed === true));
         return;
       case "blocked":
         setDraft(null);

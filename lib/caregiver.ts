@@ -1,9 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type TransitionOutcome } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
-import { statusWords } from "@/lib/orders/view";
 import type { CreatePayPalOrderInput } from "@/lib/paypal";
 import { reminderEmail, type SendEmail } from "@/lib/email";
+import type { ErrorCode } from "@/lib/errors";
 
 export type CaregiverDeps = {
   getOrder(id: string): Promise<Order | null>;
@@ -14,7 +14,7 @@ export type CaregiverDeps = {
   appUrl: string;
 };
 
-export type ApproveResult = { ok: true; approveUrl: string } | { ok: false; message: string };
+export type ApproveResult = { ok: true; approveUrl: string } | { ok: false; code: ErrorCode };
 
 // Who is asking: the household cookie (Anna on the demo dashboard) and/or the token from her email link.
 export type Viewer = { household: Household | null; token: string | null };
@@ -38,12 +38,12 @@ export function canActOnRequest(order: Pick<Order, "userId" | "caregiverToken">,
 
 export async function approveRequest(deps: CaregiverDeps, orderId: string, viewer: Viewer): Promise<ApproveResult> {
   const order = await deps.getOrder(orderId);
-  if (!order || !canActOnRequest(order, viewer)) return { ok: false, message: "This request was not found." };
+  if (!order || !canActOnRequest(order, viewer)) return { ok: false, code: "not_found" };
   const household = await deps.householdForUser(order.userId);
-  if (!household) return { ok: false, message: "This request was not found." };
+  if (!household) return { ok: false, code: "not_found" };
   const resuming = order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver";
   if (order.status !== "AWAITING_CAREGIVER" && !resuming) {
-    return { ok: false, message: `This request is already ${statusWords(order.status, household.caregiver.name)}.` };
+    return { ok: false, code: "not_waiting" };
   }
   let paypal: { paypalOrderId: string; approveUrl: string };
   try {
@@ -60,7 +60,7 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
     });
   } catch (err) {
     console.error("PayPal order creation failed", err);
-    return { ok: false, message: "PayPal isn't answering right now. Nothing was charged. Please try again." };
+    return { ok: false, code: "paypal_down" };
   }
   if (!resuming) {
     await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "caregiver", { paypalOrderId: paypal.paypalOrderId, payerRole: "caregiver" });
@@ -69,7 +69,7 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
     // The superseded PayPal order was never captured by us, so no money is attached to it.
     console.info(`order ${order.id}: PayPal order ${order.paypalOrderId} superseded by ${paypal.paypalOrderId}`);
     if (!(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId))) {
-      return { ok: false, message: "This request just changed. Please reload the page and try again." };
+      return { ok: false, code: "request_changed" };
     }
   }
   return { ok: true, approveUrl: paypal.approveUrl };

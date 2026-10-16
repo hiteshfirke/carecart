@@ -42,6 +42,11 @@ describe("toOptions", () => {
     expect(toOptions(list, 3).map((o) => o.productId)).toEqual(["a", "b", "c"]);
   });
 
+  it("skips offers with a zero or negative price", () => {
+    const free = raw({ id: "f", offers: [{ url: "u", domain: "z.com", price: { price: 0, currency: "USD" }, availability: "InStock" }] });
+    expect(toOptions([free], 3)).toEqual([]);
+  });
+
   it("returns an empty list for no products", () => {
     expect(toOptions([], 3)).toEqual([]);
   });

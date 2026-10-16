@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { errorMessage } from "@/lib/errors";
 import { notFound } from "next/navigation";
 import { getHouseholdByUser, getOrder, userUtterances } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
@@ -40,7 +41,7 @@ export default async function RequestPage({
         {senior.name} asked for {view.title}
       </h1>
       {banner ? <p role="status" className="font-bold">{banner}</p> : null}
-      {sp.error ? <p role="alert">{sp.error}</p> : null}
+      {errorMessage(sp.error) ? <p role="alert">{errorMessage(sp.error)}</p> : null}
       {view.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={view.imageUrl} alt={view.imageAlt} width={200} height={200} className="rounded-lg bg-white object-contain" />

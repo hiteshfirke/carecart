@@ -27,9 +27,13 @@ export function landingFor(order: Order | null, result: PaymentResult): string {
   return `/talk?order=${order.id}&payment=${result}`;
 }
 
+// PayPal 422 issues that mean no money was taken. Anything else might have captured, so we wait for the webhook.
+const NOT_CAPTURED_ISSUES = ["INSTRUMENT_DECLINED", "ORDER_NOT_APPROVED", "PAYER_CANNOT_PAY", "TRANSACTION_REFUSED", "PAYER_ACTION_REQUIRED"];
+
 function definitelyNotCaptured(err: unknown): boolean {
   if (!(err instanceof PayPalError) || err.status !== 422) return false;
-  return !JSON.stringify(err.body ?? "").includes("ORDER_ALREADY_CAPTURED");
+  const body = JSON.stringify(err.body ?? "");
+  return NOT_CAPTURED_ISSUES.some((issue) => body.includes(`"${issue}"`));
 }
 
 export async function handleReturn(deps: PaymentDeps, paypalOrderId: string | null): Promise<string> {

@@ -1,5 +1,6 @@
 import type { Order, OrderPatch, Tracking, TransitionOutcome } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
+import type { ErrorCode } from "@/lib/errors";
 
 export type StoreDeps = {
   getOrder(id: string): Promise<Order | null>;
@@ -14,16 +15,16 @@ export function trackingNumberFor(orderId: string): string {
   return "9400" + String(hash).padStart(18, "0");
 }
 
-export async function shipOrder(deps: StoreDeps, orderId: string, seniorId: string): Promise<{ ok: true; tracking: Tracking } | { ok: false; message: string }> {
+export async function shipOrder(deps: StoreDeps, orderId: string, seniorId: string): Promise<{ ok: true; tracking: Tracking } | { ok: false; code: ErrorCode }> {
   const order = await deps.getOrder(orderId);
-  if (!order || order.userId !== seniorId) return { ok: false, message: "Order not found." };
-  if (order.status !== "PAID" || !order.paypalOrderId || !order.captureId) return { ok: false, message: "Only paid orders can be shipped." };
+  if (!order || order.userId !== seniorId) return { ok: false, code: "order_not_found" };
+  if (order.status !== "PAID" || !order.paypalOrderId || !order.captureId) return { ok: false, code: "not_shippable" };
   const tracking: Tracking = { carrier: "USPS", number: trackingNumberFor(order.id) };
   try {
     await deps.addTracking(order.paypalOrderId, order.captureId, tracking);
   } catch (err) {
     console.error("PayPal tracking failed", err);
-    return { ok: false, message: "PayPal didn't accept the tracking number. Please try again." };
+    return { ok: false, code: "tracking_rejected" };
   }
   await deps.transitionOrder(order.id, "SHIPPED", "store", { tracking });
   return { ok: true, tracking };

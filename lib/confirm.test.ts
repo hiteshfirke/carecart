@@ -18,6 +18,7 @@ function setup(over: {
   risk?: RiskAssessment | null;
   paypalFails?: boolean;
   emailOk?: boolean;
+  confirmRaced?: boolean;
 } = {}) {
   const order: Order = {
     id: "o1", userId: "rose", sessionId: "s1",
@@ -37,6 +38,7 @@ function setup(over: {
     assessRisk: async () => (over.risk === undefined ? { aiRisk: { risk: "low", reasons: [] }, caregiverSummary: "Rose wants green tea." } : over.risk),
     transitionOrder: async (_id, to, _actor, patch) => {
       transitions.push({ to, patch });
+      if (over.confirmRaced && to === "CONFIRMED") return { result: "noop", order };
       return { result: "applied", order };
     },
     createPayPalOrder: async (input) => {
@@ -108,6 +110,15 @@ describe("confirmOrder", () => {
     expect((await confirmOrder(dup.deps, household, "o1", false)).outcome).toBe("recheck");
     expect(dup.transitions).toHaveLength(0);
     expect((await confirmOrder(dup.deps, household, "o1", true)).outcome).toBe("pay");
+  });
+
+  it("stops if another confirm already moved the order (no email, no approve link)", async () => {
+    const pay = setup({ confirmRaced: true });
+    expect((await confirmOrder(pay.deps, household, "o1", false)).outcome).toBe("error");
+    expect(pay.transitions.map((t) => t.to)).toEqual(["CONFIRMED"]);
+    const care = setup({ confirmRaced: true, order: { totalCents: 6500 } });
+    expect((await confirmOrder(care.deps, household, "o1", false)).outcome).toBe("error");
+    expect(care.emails).toHaveLength(0);
   });
 
   it("an unavailable AI risk check does not stop a normal order", async () => {

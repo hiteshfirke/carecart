@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   );
   if (result.ok) return NextResponse.redirect(result.approveUrl, 303);
   const back = new URL(`/caregiver/requests/${id}`, req.url);
-  back.searchParams.set("error", result.message);
+  back.searchParams.set("error", result.code);
   if (token) back.searchParams.set("t", token);
   return NextResponse.redirect(back, 303);
 }

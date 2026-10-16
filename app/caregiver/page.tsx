@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { errorMessage } from "@/lib/errors";
 import { redirect } from "next/navigation";
 import { listOrders } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
@@ -20,7 +21,7 @@ export default async function CaregiverPage({ searchParams }: { searchParams: Pr
         Hi {caregiver.name}, here&apos;s {senior.name}&apos;s shopping
       </h1>
       {sp.saved ? <p role="status" className="font-bold">Limits saved.</p> : null}
-      {sp.error ? <p role="alert">{sp.error}</p> : null}
+      {errorMessage(sp.error) ? <p role="alert">{errorMessage(sp.error)}</p> : null}
 
       <section aria-labelledby="pending-h">
         <h2 id="pending-h" className="text-[1.4rem] font-bold">

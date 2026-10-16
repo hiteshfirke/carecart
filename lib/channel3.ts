@@ -41,7 +41,7 @@ export function toOptions(products: RawProduct[], limit: number): ProductOption[
   const options: ProductOption[] = [];
   for (const p of products) {
     const offer = (p.offers ?? [])
-      .filter((o) => o.price?.currency === "USD" && o.availability === "InStock")
+      .filter((o) => o.price?.currency === "USD" && o.price.price > 0 && o.availability === "InStock")
       .sort((a, b) => a.price.price - b.price.price)[0];
     if (!offer) continue;
     const images = p.images ?? [];

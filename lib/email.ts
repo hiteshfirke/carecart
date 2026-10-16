@@ -36,8 +36,9 @@ export const sendEmail: SendEmail = async (message) => {
 
 function orderBlock(order: Order, senior: User): string {
   const flags = order.flags.length ? `<ul>${order.flags.map((f) => `<li>${escapeHtml(f.message)}</li>`).join("")}</ul>` : "";
+  const summary = order.summary ? `<p><em>AI summary (may be inaccurate):</em> ${escapeHtml(order.summary)}</p>` : "";
   return `<p>${escapeHtml(senior.name)} asked to buy <strong>${escapeHtml(order.product.title)}</strong> for <strong>$${formatUsd(order.totalCents)}</strong> from ${escapeHtml(merchantName(order.merchant))}.</p>
-<p>${escapeHtml(order.summary ?? "")}</p>${flags}`;
+${flags}${summary}`;
 }
 
 export function requestEmail(order: Order, senior: User, link: string) {

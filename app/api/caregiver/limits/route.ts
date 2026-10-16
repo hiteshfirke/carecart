@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const parsed = Limits.safeParse({ selfPay: form.get("selfPay"), dailyCap: form.get("dailyCap") });
   if (!parsed.success) {
-    return NextResponse.redirect(new URL(`/caregiver?error=${encodeURIComponent("Please enter whole dollar amounts.")}`, req.url), 303);
+    return NextResponse.redirect(new URL("/caregiver?error=bad_limits", req.url), 303);
   }
   await updateLimits(household.senior.id, parsed.data.selfPay * 100, parsed.data.dailyCap * 100);
   return NextResponse.redirect(new URL("/caregiver?saved=1", req.url), 303);
