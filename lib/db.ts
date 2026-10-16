@@ -277,9 +277,14 @@ export async function transitionOrder(id: string, to: OrderStatus, actor: string
   return { result: "applied", order: toOrder(rows[0]) };
 }
 
-export async function setPaypalOrderId(id: string, paypalOrderId: string): Promise<void> {
-  await sql()`update orders set paypal_order_id = ${paypalOrderId}, updated_at = now()
-              where id = ${id} and status = 'AWAITING_PAYMENT' and payer_role = 'caregiver'`;
+export async function setPaypalOrderId(id: string, paypalOrderId: string): Promise<boolean> {
+  const rows = (await sql()`update orders set paypal_order_id = ${paypalOrderId}, updated_at = now()
+              where id = ${id} and status = 'AWAITING_PAYMENT' and payer_role = 'caregiver'
+              returning id`) as Row[];
+  if (rows.length === 0) return false;
+  await sql()`insert into order_events (order_id, from_status, to_status, actor)
+              values (${id}, 'AWAITING_PAYMENT', 'AWAITING_PAYMENT', ${`paypal-rebind:${paypalOrderId}`})`;
+  return true;
 }
 
 export async function ruleHistory(userId: string, productId: string, excludingOrderId: string): Promise<RuleHistory> {

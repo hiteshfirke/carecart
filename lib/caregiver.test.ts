@@ -31,7 +31,7 @@ describe("canActOnRequest", () => {
   });
 });
 
-function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null; paypalOrderId?: string | null } = {}) {
+function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null; paypalOrderId?: string | null; saveFails?: boolean } = {}) {
   const order = {
     id: "o1", userId: "rose", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
     product: { productId: "p", title: "Monitor", priceCents: 6500, merchant: "walmart.com" },
@@ -55,6 +55,7 @@ function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "
     },
     setPaypalOrderId: async (id, paypalOrderId) => {
       calls.saved.push([id, paypalOrderId]);
+      return !opts.saveFails;
     },
     appUrl: "https://app.test",
   };
@@ -80,6 +81,12 @@ describe("approveRequest", () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP-old" });
     expect((await approveRequest(deps, "o1", owner)).ok).toBe(true);
     expect(calls.saved).toEqual([["o1", "PP9"]]);
+  });
+
+  it("fails instead of sending Anna to a PayPal order the app can't find", async () => {
+    const { deps } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP-old", saveFails: true });
+    const result = await approveRequest(deps, "o1", owner);
+    expect(result.ok).toBe(false);
   });
 
   it("does not rewrite the PayPal id when PayPal returns the same order", async () => {

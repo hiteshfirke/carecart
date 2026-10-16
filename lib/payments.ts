@@ -41,7 +41,8 @@ export async function handleReturn(deps: PaymentDeps, paypalOrderId: string | nu
 
   let capture: Awaited<ReturnType<PaymentDeps["capture"]>>;
   try {
-    capture = await deps.capture(paypalOrderId, `capture-${order.id}`);
+    // Keyed on the PayPal order: after a caregiver rebind, an earlier attempt's key must not be replayed.
+    capture = await deps.capture(paypalOrderId, `capture-${paypalOrderId}`);
   } catch (err) {
     console.error("PayPal capture error", err);
     if (definitelyNotCaptured(err)) {

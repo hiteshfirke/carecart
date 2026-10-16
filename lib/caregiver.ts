@@ -10,7 +10,7 @@ export type CaregiverDeps = {
   householdForUser(userId: string): Promise<Household | null>;
   transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
-  setPaypalOrderId(id: string, paypalOrderId: string): Promise<void>;
+  setPaypalOrderId(id: string, paypalOrderId: string): Promise<boolean>;
   appUrl: string;
 };
 
@@ -66,7 +66,11 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
     await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "caregiver", { paypalOrderId: paypal.paypalOrderId, payerRole: "caregiver" });
   } else if (paypal.paypalOrderId !== order.paypalOrderId) {
     // PayPal forgets idempotency keys after a while and may issue a new order; the return page must find it.
-    await deps.setPaypalOrderId(order.id, paypal.paypalOrderId);
+    // The superseded PayPal order was never captured by us, so no money is attached to it.
+    console.info(`order ${order.id}: PayPal order ${order.paypalOrderId} superseded by ${paypal.paypalOrderId}`);
+    if (!(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId))) {
+      return { ok: false, message: "This request just changed. Please reload the page and try again." };
+    }
   }
   return { ok: true, approveUrl: paypal.approveUrl };
 }

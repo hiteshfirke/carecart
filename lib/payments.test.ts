@@ -35,7 +35,7 @@ describe("handleReturn", () => {
   it("captures once with an idempotency key and marks the order PAID", async () => {
     const { deps, transitions, captures } = setup("AWAITING_PAYMENT");
     expect(await handleReturn(deps, "PP1")).toBe("/talk?order=o1&payment=paid");
-    expect(captures).toEqual([{ id: "PP1", requestId: "capture-o1" }]);
+    expect(captures).toEqual([{ id: "PP1", requestId: "capture-PP1" }]);
     expect(transitions).toEqual([{ to: "PAID", patch: { captureId: "CAP1" } }]);
   });
 
