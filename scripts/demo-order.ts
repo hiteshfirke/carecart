@@ -74,7 +74,7 @@ async function main() {
       console.log(outcome.emailed ? "Sent to Anna. Open the link in the email and approve as the Anna Caregiver sandbox account." : "Sent to Anna, but the email failed. Open /caregiver as Anna instead.");
       break;
     case "blocked":
-      console.log(`Blocked: ${outcome.reasons.join("; ")}. Anna should get a scam alert email.`);
+      console.log(`Blocked: ${outcome.reasons.join(" ")} Anna should get a scam alert email.`);
       break;
     default:
       console.log(`${outcome.outcome}: ${outcome.message}`);

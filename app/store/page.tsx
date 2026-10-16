@@ -16,21 +16,24 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
       <p>This page plays the store. Shipping adds a tracking number to the PayPal order.</p>
       {sp.shipped ? <p role="status" className="font-bold">Shipped. Tracking was added in PayPal.</p> : null}
       {errorMessage(sp.error) ? <p role="alert">{errorMessage(sp.error)}</p> : null}
-      {paid.length === 0 ? <p>No paid orders waiting.</p> : null}
-      <ul className="flex flex-col gap-3">
-        {paid.map((o) => (
-          <li key={o.id} className="flex flex-col gap-2 rounded-2xl border-[3px] p-4">
-            <p className="font-bold">
-              {o.product.title}: ${formatUsd(o.totalCents)}
-            </p>
-            <form action={`/api/store/orders/${o.id}/ship`} method="post">
-              <button type="submit" className="btn btn-primary">
-                Ship and add tracking
-              </button>
-            </form>
-          </li>
-        ))}
-      </ul>
+      {paid.length === 0 ? (
+        <p>No paid orders waiting.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {paid.map((o) => (
+            <li key={o.id} className="flex flex-col gap-2 rounded-2xl border-[3px] p-4">
+              <p className="font-bold">
+                {o.product.title}: ${formatUsd(o.totalCents)}
+              </p>
+              <form action={`/api/store/orders/${o.id}/ship`} method="post">
+                <button type="submit" className="btn btn-primary">
+                  Ship and add tracking
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
       <Link href="/" className="underline">
         Home
       </Link>
