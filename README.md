@@ -6,6 +6,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com).
 
 - Live demo: _add your Vercel URL here_
 - Demo video: _add your YouTube link here_
+- How it works, layer by layer: [docs/walkthrough.md](docs/walkthrough.md)
 
 ## How it works
 

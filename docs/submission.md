@@ -19,7 +19,7 @@ A voice assistant could fix the first problem and make the second one worse: an 
 3. **The app reads the order back** (item, total, store). Only an exact "confirm" or "yes", or the Confirm button, continues. "Yes but wait" never pays.
 4. **Plain, tested safety rules decide the route:**
    - **Small, normal orders:** Rose pays with PayPal herself, guided by voice.
-   - **Large, unusual or flagged orders:** Anna gets an email with a summary, the flags and Rose's exact words, and approves and pays with her own PayPal. Rose hears "This one needs Anna's OK."
+   - **Large, unusual or flagged orders:** Anna gets an email; her request page shows a summary, the flags and Rose's exact words, and she approves and pays with her own PayPal. Rose hears "This one needs Anna's OK."
    - **Scams:** gift cards, crypto, money transfers, or phrases like "the bank called" or "keep this secret" are blocked. Rose gets a kind explanation and Anna gets a scam warning.
 5. **After payment:** the store adds tracking to the PayPal order, and Rose can ask "where's my order?"
 
