@@ -35,12 +35,28 @@ Claude has exactly four tools: `search_products`, `draft_order`, `get_order_stat
 
 **The AI can only add caution, never remove it.** If the AI risk check fails, the rules alone decide.
 
+```mermaid
+flowchart LR
+  Rose((Rose speaks)) --> Talk[Talk screen]
+  Talk --> Agent["Claude Sonnet 5.5<br/>4 tools, none can pay"]
+  Agent -- search_products --> C3[Channel3]
+  Agent -- draft_order --> DB[(Postgres)]
+  Talk -- "exact confirm" --> Confirm["Confirm step<br/>rules S1-S7 + AI risk check"]
+  Confirm -- self-pay --> PP[PayPal Orders v2]
+  Confirm -- caregiver --> Email[Email to Anna]
+  Confirm -- blocked --> Alert[Scam alert to Anna]
+  Email --> Anna((Anna)) -- approve --> PP
+  PP -- "return page + webhook" --> DB
+```
+
 ## PayPal usage
 
 - **Orders v2:** orders are created with `payment_source.paypal.experience_context` (`PAY_NOW`, `SET_PROVIDED_ADDRESS`) and captured on return. Every create and capture sends a `PayPal-Request-Id`, so a retried request never charges twice.
 - **Order tracking:** `POST /v2/checkout/orders/{id}/track` adds the shipment to the PayPal order, which protects the seller in disputes.
 - **Webhooks:** `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.DENIED`, verified with `/v1/notifications/verify-webhook-signature`. The raw event bytes are passed to verification unchanged.
 - Order statuses only move forward. The webhook and the return page can both arrive, and the order is still marked paid exactly once.
+
+**Verified in the PayPal sandbox:** Rose's self-pay capture, Anna's approve-and-pay capture from the email link, the scam block with its alert email, and USPS tracking stored on both PayPal orders.
 
 The PayPal REST API is called directly. The hosted sandbox MCP server was failing for every hackathon participant at build time, and PayPal staff confirmed that direct REST calls are fine.
 
@@ -49,6 +65,7 @@ The PayPal REST API is called directly. The hosted sandbox MCP server was failin
 - **Claude Sonnet 5.5** (Anthropic API, TypeScript SDK tool runner): the voice conversation agent, the structured risk check, and the summary sent to the caregiver.
 - **Web Speech API** (built into the browser): speech recognition and speech output.
 - **Channel3 API:** real product search.
+- **Claude Code** (Anthropic) was used during development for planning, writing code and tests, and code review.
 
 ## Accessibility
 
@@ -69,12 +86,18 @@ npm run db:migrate
 npm run dev
 ```
 
-**Tests:**
+**PayPal sandbox setup:** create a **US** sandbox Business account (the store), one or two **US** Personal accounts (the buyers), and a REST app linked to that Business account; its client ID and secret go in `.env.local`. Default sandbox accounts take the developer account's country, and a non-US buyer or store fails on this USD, US-address checkout with "This seller doesn't accept payments in your currency".
+
+**Tests and checks:**
 
 ```bash
-npm test          # unit tests (the database integration suite runs when DATABASE_URL is set)
-npm run e2e       # Playwright + axe (needs DATABASE_URL)
+npm test                     # 128 unit tests (the database suite runs when DATABASE_URL is set)
+npm run e2e                  # 9 Playwright + axe tests (needs DATABASE_URL)
+npm run smoke                # live calls to Channel3, PayPal, Resend and Claude
+npm run demo:order -- selfpay   # or caregiver / scam: a real order through the confirm step, no Claude needed
 ```
+
+`demo:order` puts the order in the newest demo household, so click **Try as Rose** first and open the PayPal link it prints in the same browser.
 
 ## Testing the hosted demo
 
@@ -87,6 +110,7 @@ Open the demo and click **Try as Rose**. To pay, log in with the PayPal **sandbo
 - Emails go only to the configured `DEMO_CAREGIVER_EMAIL` (Resend's test sender).
 - Demo households are reached by link and cookie, with no login. Anyone with a caregiver request link can act on it.
 - English only.
+- Channel3 has no grocery items, so the demo uses things like reading glasses and large-print crossword books.
 
 ## License
 
