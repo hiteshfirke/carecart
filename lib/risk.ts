@@ -3,6 +3,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { speakUsd } from "@/lib/money";
 import type { AiRisk } from "@/lib/safety/rules";
+import { aiProvider } from "@/lib/ai/provider";
+import { chat } from "@/lib/ai/openaiCompat";
 
 export const RiskSchema = z.object({
   risk: z.enum(["low", "medium", "high"]),
@@ -30,7 +32,35 @@ export function riskPrompt(input: RiskInput): { system: string; user: string } {
   };
 }
 
-const defaultParse: ParseFn = async ({ system, user }) => {
+// Providers without structured output return text; take the JSON object out of it and validate it.
+export function parseRiskJson(text: string | null): RiskOutput | null {
+  if (!text) return null;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = RiskSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const JSON_INSTRUCTION =
+  'Reply with only a JSON object and nothing else: {"risk": "low" | "medium" | "high", "reasons": [up to 3 short strings], "caregiver_summary": "2 or 3 sentences"}';
+
+const openAiCompatParse: ParseFn = async ({ system, user }) => {
+  const { content } = await chat(
+    [
+      { role: "system", content: `${system}\n\n${JSON_INSTRUCTION}` },
+      { role: "user", content: user },
+    ],
+    { maxTokens: 1000 },
+  );
+  return parseRiskJson(content);
+};
+
+const anthropicParse: ParseFn = async ({ system, user }) => {
   const res = await new Anthropic().messages.parse({
     model: process.env.CLAUDE_MODEL ?? "claude-sonnet-5-5",
     max_tokens: 1000,
@@ -40,6 +70,8 @@ const defaultParse: ParseFn = async ({ system, user }) => {
   });
   return res.parsed_output ?? null;
 };
+
+const defaultParse: ParseFn = (prompt) => (aiProvider() === "openai-compatible" ? openAiCompatParse(prompt) : anthropicParse(prompt));
 
 export async function assessRisk(input: RiskInput, parse: ParseFn = defaultParse): Promise<RiskAssessment | null> {
   try {

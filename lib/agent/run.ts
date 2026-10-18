@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages";
 import type { ChatMessage } from "@/lib/db";
 import { systemPrompt } from "./prompt";
-import { buildTools, type AgentDeps, type TurnContext, type TurnOutput } from "./tools";
+import { aiProvider } from "@/lib/ai/provider";
+import { runToolLoop } from "@/lib/ai/openaiCompat";
+import { buildTools, toolSpecs, type AgentDeps, type TurnContext, type TurnOutput } from "./tools";
 
 let anthropic: Anthropic | null = null;
 function client(): Anthropic {
@@ -29,6 +31,15 @@ export async function runTurn(args: {
   userText: string;
 }): Promise<{ reply: string } & TurnOutput> {
   const out: TurnOutput = { options: null, draft: null };
+  if (aiProvider() === "openai-compatible") {
+    const reply = await runToolLoop({
+      system: systemPrompt(args.userName, args.ctx.caregiverName),
+      messages: toMessages(args.history, args.userText).map((m) => ({ role: m.role, content: m.content as string })),
+      tools: toolSpecs(args.deps, args.ctx, out),
+      maxIterations: 6,
+    });
+    return { reply: reply.trim() || "Sorry, could you say that again?", ...out };
+  }
   const final = await client().beta.messages.toolRunner({
     model: process.env.CLAUDE_MODEL ?? "claude-sonnet-5-5",
     max_tokens: 2000,

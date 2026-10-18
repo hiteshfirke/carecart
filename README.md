@@ -89,12 +89,14 @@ npm run dev
 
 **PayPal sandbox setup:** create a **US** sandbox Business account (the store), one or two **US** Personal accounts (the buyers), and a REST app linked to that Business account; its client ID and secret go in `.env.local`. Default sandbox accounts take the developer account's country, and a non-US buyer or store fails on this USD, US-address checkout with "This seller doesn't accept payments in your currency".
 
+**AI provider:** Claude is the default. To run on a free OpenAI-compatible API instead (Groq or Gemini), set `AI_PROVIDER=openai-compatible` plus `AI_BASE_URL`, `AI_API_KEY` and `AI_MODEL`; `.env.example` lists both presets. Switching back to Claude is one line: `AI_PROVIDER=anthropic` (or empty) with `ANTHROPIC_API_KEY` set. Both providers share the same four tools, prompt and safety rules.
+
 **Tests and checks:**
 
 ```bash
 npm test                     # 128 unit tests (the database suite runs when DATABASE_URL is set)
 npm run e2e                  # 9 Playwright + axe tests (needs DATABASE_URL)
-npm run smoke                # live calls to Channel3, PayPal, Resend and Claude
+npm run smoke                # live calls to Channel3, PayPal, Resend, the AI risk check and one agent turn
 npm run demo:order -- selfpay   # or caregiver / scam: a real order through the confirm step, no Claude needed
 ```
 

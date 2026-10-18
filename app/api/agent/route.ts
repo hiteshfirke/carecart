@@ -5,6 +5,7 @@ import * as db from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { searchProducts } from "@/lib/channel3";
 import { runTurn } from "@/lib/agent/run";
+import { AiProviderError } from "@/lib/ai/openaiCompat";
 import type { AgentDeps } from "@/lib/agent/tools";
 import { readBack, toOptionView, toOrderView } from "@/lib/orders/view";
 
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
       draft: result.draft ? { ...toOrderView(result.draft, household.caregiver.name), readBack: readBack(result.draft) } : null,
     });
   } catch (err) {
-    if (err instanceof Anthropic.APIError) {
+    if (err instanceof Anthropic.APIError || err instanceof AiProviderError) {
       console.error("agent API error", err.status, err.message);
       return NextResponse.json({ sessionId, reply: "Sorry, I had trouble just now. Please say that again.", options: null, draft: null, retry: true });
     }

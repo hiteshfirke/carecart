@@ -162,6 +162,9 @@ const final = await client().beta.messages.toolRunner({
 
 4. The reply text and any `options` or `draft` the tools produced are returned to the browser.
 
+### Switching the AI provider
+Claude is the default. `AI_PROVIDER=openai-compatible` sends the same prompt and the same four tools to any OpenAI-compatible chat API (Groq, Gemini, OpenRouter) through `lib/ai/openaiCompat.ts`, which runs the model → tool → model loop itself and validates every tool argument against the tool's zod schema before running it. `lib/ai/provider.ts` decides which path runs; `toolSpecs()` in `lib/agent/tools.ts` is the single tool list both paths use. The risk check works the same way: on OpenAI-compatible providers it asks for JSON and validates it with `RiskSchema`, and anything that doesn't parse becomes `null`, so the rules alone decide.
+
 ### The four tools (and what they *can't* do)
 | Tool | What it does | Returns to Claude |
 |---|---|---|

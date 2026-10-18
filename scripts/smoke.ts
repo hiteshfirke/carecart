@@ -1,10 +1,13 @@
-// Live checks against the real services in .env.local: npm run smoke [channel3|paypal|email|claude]
+// Live checks against the real services in .env.local: npm run smoke [channel3|paypal|email|ai|agent]
 import { randomUUID } from "node:crypto";
 import { searchProducts } from "@/lib/channel3";
 import { createPayPalOrder } from "@/lib/paypal";
 import { sendEmail } from "@/lib/email";
 import { assessRisk } from "@/lib/risk";
 import { DEMO_ADDRESS } from "@/lib/db";
+import { aiProvider } from "@/lib/ai/provider";
+import { runTurn } from "@/lib/agent/run";
+import type { ProductOption } from "@/lib/channel3";
 
 const checks: Record<string, () => Promise<string>> = {
   async channel3() {
@@ -35,7 +38,8 @@ const checks: Record<string, () => Promise<string>> = {
     if (!ok) throw new Error("Resend rejected the email (see log above)");
     return "sent to DEMO_CAREGIVER_EMAIL";
   },
-  async claude() {
+  // The AI risk check, on whichever provider AI_PROVIDER selects.
+  async ai() {
     const started = Date.now();
     const risk = await assessRisk({
       seniorName: "Rose",
@@ -44,7 +48,29 @@ const checks: Record<string, () => Promise<string>> = {
       transcript: ["I need green tea"],
     });
     if (!risk) throw new Error("risk check returned null (see log above)");
-    return `risk ${risk.aiRisk.risk} in ${Date.now() - started} ms`;
+    return `${aiProvider()}: risk ${risk.aiRisk.risk} in ${Date.now() - started} ms`;
+  },
+  // One real agent turn with tool calling: the model must call search_products (live Channel3).
+  async agent() {
+    const started = Date.now();
+    let saved: ProductOption[] = [];
+    const result = await runTurn({
+      deps: {
+        searchProducts: (query, maxPriceCents) => searchProducts(query, { maxPriceCents }),
+        saveOptions: async (_session, options) => void (saved = options),
+        getOptions: async () => saved,
+        createDraftOrder: async () => {
+          throw new Error("the smoke check never drafts an order");
+        },
+        listOrders: async () => [],
+      },
+      ctx: { userId: "smoke", sessionId: "smoke", caregiverName: "Anna" },
+      userName: "Rose",
+      history: [],
+      userText: "I need reading glasses",
+    });
+    if (!result.options?.length) throw new Error(`the model did not search; it said: ${result.reply}`);
+    return `${aiProvider()}: ${result.options.length} options in ${Date.now() - started} ms; reply: ${result.reply}`;
   },
 };
 

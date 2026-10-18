@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assessRisk, riskPrompt, type RiskInput } from "./risk";
+import { assessRisk, parseRiskJson, riskPrompt, type RiskInput } from "./risk";
 
 const input: RiskInput = {
   seniorName: "Rose",
@@ -42,5 +42,18 @@ describe("assessRisk", () => {
 
   it("returns null when the output could not be parsed", async () => {
     expect(await assessRisk(input, vi.fn(async () => null))).toBeNull();
+  });
+});
+
+describe("parseRiskJson (OpenAI-compatible providers)", () => {
+  it("reads the JSON object even when the model wraps it in prose or a code fence", () => {
+    const text = 'Here you go:\n```json\n{"risk":"high","reasons":["gift cards"],"caregiver_summary":"Rose was told to buy gift cards."}\n```';
+    expect(parseRiskJson(text)).toEqual({ risk: "high", reasons: ["gift cards"], caregiver_summary: "Rose was told to buy gift cards." });
+  });
+
+  it("returns null for broken JSON or a wrong shape, so the rules alone decide", () => {
+    expect(parseRiskJson("not json")).toBeNull();
+    expect(parseRiskJson('{"risk":"very high","reasons":[],"caregiver_summary":"x"}')).toBeNull();
+    expect(parseRiskJson(null)).toBeNull();
   });
 });

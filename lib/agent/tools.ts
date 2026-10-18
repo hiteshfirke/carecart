@@ -4,6 +4,7 @@ import { speakUsd } from "@/lib/money";
 import type { ProductOption } from "@/lib/channel3";
 import type { Order } from "@/lib/db";
 import { merchantName, statusWords } from "@/lib/orders/view";
+import type { ToolSpec } from "@/lib/ai/openaiCompat";
 
 export type AgentDeps = {
   searchProducts(query: string, maxPriceCents?: number): Promise<ProductOption[]>;
@@ -65,37 +66,37 @@ export async function runExplain(deps: AgentDeps, ctx: TurnContext): Promise<str
   return JSON.stringify({ item: flagged.product.title, status: statusWords(flagged.status, ctx.caregiverName), reasons: flagged.flags.map((f) => f.message) });
 }
 
-export function buildTools(deps: AgentDeps, ctx: TurnContext, out: TurnOutput) {
+function tool<S extends z.ZodType>(name: string, description: string, inputSchema: S, run: (input: z.infer<S>) => Promise<string>): ToolSpec {
+  return { name, description, inputSchema, run: (input) => run(input as z.infer<S>) };
+}
+
+// One list of tools for every AI provider. None of them can confirm or pay.
+export function toolSpecs(deps: AgentDeps, ctx: TurnContext, out: TurnOutput): ToolSpec[] {
   return [
-    betaZodTool({
-      name: "search_products",
-      description: "Search the store. Returns up to three options with prices in words.",
-      inputSchema: z.object({
+    tool(
+      "search_products",
+      "Search the store. Returns up to three options with prices in words.",
+      z.object({
         query: z.string().min(1).max(200).describe("What to search for, e.g. 'reading glasses' or 'large print crossword book'"),
         max_price_dollars: z.number().positive().max(10000).optional().describe("Only if they gave a budget"),
       }),
-      run: (input) => runSearch(deps, ctx, out, input),
-    }),
-    betaZodTool({
-      name: "draft_order",
-      description: "Create a draft order for one option from the last search. This does NOT place or pay for anything; the app reads it back and asks them to confirm.",
-      inputSchema: z.object({
+      (input) => runSearch(deps, ctx, out, input),
+    ),
+    tool(
+      "draft_order",
+      "Create a draft order for one option from the last search. This does NOT place or pay for anything; the app reads it back and asks them to confirm.",
+      z.object({
         option: z.number().int().min(1).max(3),
         quantity: z.number().int().min(1).max(10).optional(),
       }),
-      run: (input) => runDraft(deps, ctx, out, input),
-    }),
-    betaZodTool({
-      name: "get_order_status",
-      description: "Get the status and tracking of their recent orders.",
-      inputSchema: z.object({}),
-      run: () => runStatus(deps, ctx),
-    }),
-    betaZodTool({
-      name: "explain_safety_flag",
-      description: "Explain why a recent order was stopped or sent to their caregiver.",
-      inputSchema: z.object({}),
-      run: () => runExplain(deps, ctx),
-    }),
+      (input) => runDraft(deps, ctx, out, input),
+    ),
+    tool("get_order_status", "Get the status and tracking of their recent orders.", z.object({}), () => runStatus(deps, ctx)),
+    tool("explain_safety_flag", "Explain why a recent order was stopped or sent to their caregiver.", z.object({}), () => runExplain(deps, ctx)),
   ];
+}
+
+// Claude's tool runner takes the same specs.
+export function buildTools(deps: AgentDeps, ctx: TurnContext, out: TurnOutput) {
+  return toolSpecs(deps, ctx, out).map((spec) => betaZodTool(spec));
 }

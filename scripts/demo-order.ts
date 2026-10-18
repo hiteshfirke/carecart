@@ -7,6 +7,7 @@ import { searchProducts, type ProductOption } from "@/lib/channel3";
 import { createPayPalOrder } from "@/lib/paypal";
 import { sendEmail } from "@/lib/email";
 import { assessRisk } from "@/lib/risk";
+import { aiConfigured } from "@/lib/ai/provider";
 import { confirmOrder } from "@/lib/confirm";
 import { newCaregiverToken } from "@/lib/caregiver";
 
@@ -52,8 +53,8 @@ async function main() {
       getOrder: db.getOrder,
       ruleHistory: db.ruleHistory,
       userUtterances: db.userUtterances,
-      // Without a key the risk check would only log an error and return null, which is what the app does too.
-      assessRisk: process.env.ANTHROPIC_API_KEY ? (input) => assessRisk(input) : async () => null,
+      // Without an AI key the risk check would only log an error and return null, which is what the app does too.
+      assessRisk: aiConfigured() ? (input) => assessRisk(input) : async () => null,
       transitionOrder: db.transitionOrder,
       createPayPalOrder: (input) => createPayPalOrder(input),
       sendEmail,
