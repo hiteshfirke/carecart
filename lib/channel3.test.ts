@@ -19,6 +19,12 @@ const raw = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("toOptions", () => {
+  it("skips a variant that would sound identical when read aloud (same title, store and price)", () => {
+    const variant = raw({ id: "p1-strength-2", title: "lipton green tea, 100 bags" });
+    const otherStore = raw({ id: "p4", offers: [{ url: "https://walgreens.com/tea", domain: "walgreens.com", price: { price: 8.49, currency: "USD" }, availability: "InStock" }] });
+    expect(toOptions([raw(), variant, otherStore], 3).map((o) => o.productId)).toEqual(["p1", "p4"]);
+  });
+
   it("uses the cheapest in-stock USD offer, the main image, and cents", () => {
     expect(toOptions([raw()], 3)).toEqual([
       {
@@ -38,7 +44,7 @@ describe("toOptions", () => {
   it("skips products with no in-stock USD offer and respects the limit", () => {
     const gbpOnly = raw({ id: "p2", offers: [{ url: "u", domain: "x.co.uk", price: { price: 3, currency: "GBP" }, availability: "InStock" }] });
     const outOfStock = raw({ id: "p3", offers: [{ url: "u", domain: "y.com", price: { price: 3, currency: "USD" }, availability: "OutOfStock" }] });
-    const list = [gbpOnly, outOfStock, raw({ id: "a" }), raw({ id: "b" }), raw({ id: "c" }), raw({ id: "d" })];
+    const list = [gbpOnly, outOfStock, raw({ id: "a", title: "Tea A" }), raw({ id: "b", title: "Tea B" }), raw({ id: "c", title: "Tea C" }), raw({ id: "d", title: "Tea D" })];
     expect(toOptions(list, 3).map((o) => o.productId)).toEqual(["a", "b", "c"]);
   });
 

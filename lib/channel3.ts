@@ -47,11 +47,15 @@ export function toOptions(products: RawProduct[], limit: number): ProductOption[
     const images = p.images ?? [];
     const image = images.find((i) => i.is_main_image) ?? images[0] ?? null;
     const title = sanitizeText(p.title);
+    const merchant = offer.domain.toLowerCase();
+    const priceCents = toCents(offer.price.price);
+    // Variants (sizes, strengths) often share a title; read aloud they would sound like the same option twice.
+    if (options.some((o) => o.title.toLowerCase() === title.toLowerCase() && o.merchant === merchant && o.priceCents === priceCents)) continue;
     options.push({
       productId: p.id,
       title,
-      priceCents: toCents(offer.price.price),
-      merchant: offer.domain.toLowerCase(),
+      priceCents,
+      merchant,
       url: offer.url,
       imageUrl: image?.url ?? null,
       imageAlt: sanitizeText(image?.alt_text ?? title, 120),
