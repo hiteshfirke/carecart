@@ -329,7 +329,9 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         >
           {speech.listening ? "Listening… tap to stop" : phase === "busy" ? "Thinking…" : "Tap to talk (Space)"}
         </button>
+        {speech.listening && speech.heard ? <p className="text-center">Heard: &ldquo;{speech.heard}&rdquo;</p> : null}
         {speech.supported === false ? <p>Voice isn&apos;t available in this browser. Please type below.</p> : null}
+        {speech.error === "no-speech" && !speech.listening ? <p role="status">I didn&apos;t hear anything. Tap to talk and try again, or type below.</p> : null}
         {speech.error === "mic-blocked" ? <p role="alert">The microphone is blocked. Please allow it in your browser, or type below.</p> : null}
       </div>
 

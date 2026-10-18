@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 export type Settings = { rate: number; scale: number; screenReader: boolean };
-export const DEFAULT_SETTINGS: Settings = { rate: 0.85, scale: 1, screenReader: false };
+export const DEFAULT_SETTINGS: Settings = { rate: 0.9, scale: 1, screenReader: false };
 const KEY = "carecart-settings";
 
 export function loadSettings(): Settings {

@@ -116,3 +116,46 @@ test("returning from PayPal shows the result as text with a Tap to hear button",
   await expect(page.getByText("Paid eight dollars and forty-nine cents for Lipton Green Tea, 100 bags. It's on the way.").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Tap to hear" })).toBeVisible();
 });
+
+// A stand-in for Chrome's speech recognition: hears the given phrases with a pause between them.
+async function fakeRecognition(page: Page, phrases: string[]) {
+  await page.addInitScript((said: string[]) => {
+    class FakeRecognition {
+      onresult: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      start() {
+        said.forEach((_, i) => {
+          const results = said.slice(0, i + 1).map((t) => [{ transcript: t }]);
+          setTimeout(() => this.onresult?.({ results }), 200 + i * 900);
+        });
+        if (said.length === 0) setTimeout(() => this.onend?.(), 300);
+      }
+      stop() {
+        setTimeout(() => this.onend?.(), 10);
+      }
+    }
+    Object.assign(window, { SpeechRecognition: FakeRecognition, webkitSpeechRecognition: FakeRecognition });
+  }, phrases);
+}
+
+test("a pause mid-sentence does not cut off what Rose says", async ({ page }) => {
+  const sent: string[] = [];
+  await page.route("**/api/agent", (route) => {
+    sent.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ json: { sessionId: SESSION, reply: "Okay.", options: null, draft: null } });
+  });
+  await fakeRecognition(page, ["I am looking for", "reading glasses"]);
+  await startAsRose(page);
+  await page.getByRole("button", { name: /tap to talk/i }).click();
+  await expect(page.getByText("Heard: “I am looking for”")).toBeVisible();
+  await expect(page.getByText("You: I am looking for reading glasses")).toBeVisible({ timeout: 8000 });
+  expect(sent).toEqual(["I am looking for reading glasses"]);
+});
+
+test("Rose is told when nothing was heard", async ({ page }) => {
+  await fakeRecognition(page, []);
+  await startAsRose(page);
+  await page.getByRole("button", { name: /tap to talk/i }).click();
+  await expect(page.getByRole("status").filter({ hasText: "I didn't hear anything" })).toBeVisible();
+});

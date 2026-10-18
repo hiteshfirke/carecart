@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { pickVoice, recognitionLang, transcriptOf } from "@/lib/speech/browserSpeech";
 
 type RecognitionResultEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionErrorEvent = { error: string };
@@ -17,6 +18,10 @@ type Recognition = {
 };
 type RecognitionCtor = new () => Recognition;
 
+// Older speakers pause mid-sentence; only stop after this much silence (or when they tap stop).
+const SILENCE_MS = 2000;
+const MAX_LISTEN_MS = 20_000;
+
 function recognitionCtor(): RecognitionCtor | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
@@ -26,8 +31,10 @@ function recognitionCtor(): RecognitionCtor | null {
 export function useSpeech(opts: { onText: (text: string) => void; rate: number; muted: boolean }) {
   const [supported, setSupported] = useState<boolean | null>(null);
   const [listening, setListening] = useState(false);
+  const [heard, setHeard] = useState("");
   const [error, setError] = useState<"mic-blocked" | "no-speech" | null>(null);
   const recognition = useRef<Recognition | null>(null);
+  const voice = useRef<SpeechSynthesisVoice | null>(null);
   const onText = useRef(opts.onText);
 
   useEffect(() => {
@@ -37,6 +44,16 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reads browser-only state after mount
     setSupported(recognitionCtor() !== null);
   }, []);
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    // Chrome loads its voice list asynchronously.
+    const load = () => {
+      voice.current = pickVoice(window.speechSynthesis.getVoices());
+    };
+    load();
+    window.speechSynthesis.addEventListener("voiceschanged", load);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
+  }, []);
 
   const speak = useCallback(
     (text: string): Promise<void> => {
@@ -44,7 +61,8 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
       return new Promise((resolve) => {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "en-US";
+        if (voice.current) utterance.voice = voice.current;
+        utterance.lang = voice.current?.lang ?? "en-US";
         utterance.rate = opts.rate;
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
@@ -61,22 +79,42 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     if (!Ctor) return;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     const r = new Ctor();
-    r.lang = "en-US";
-    r.interimResults = false;
-    r.continuous = false;
+    r.lang = recognitionLang(navigator.language);
+    r.interimResults = true;
+    r.continuous = true;
     r.maxAlternatives = 1;
+
+    let text = "";
+    let failed = false;
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const cap = setTimeout(() => r.stop(), MAX_LISTEN_MS);
     r.onresult = (e) => {
-      const text = e.results[0]?.[0]?.transcript ?? "";
-      if (text) onText.current(text);
+      text = transcriptOf(e.results);
+      setHeard(text);
+      clearTimeout(silence);
+      silence = setTimeout(() => r.stop(), SILENCE_MS);
     };
-    r.onerror = (e) => setError(e.error === "not-allowed" || e.error === "service-not-allowed" ? "mic-blocked" : "no-speech");
-    r.onend = () => setListening(false);
+    r.onerror = (e) => {
+      failed = true;
+      setError(e.error === "not-allowed" || e.error === "service-not-allowed" ? "mic-blocked" : "no-speech");
+    };
+    // Runs after a pause, a tap on stop, an error or the time cap: send whatever was heard.
+    r.onend = () => {
+      clearTimeout(silence);
+      clearTimeout(cap);
+      setListening(false);
+      setHeard("");
+      if (text) onText.current(text);
+      else if (!failed) setError("no-speech");
+    };
     recognition.current = r;
     setError(null);
+    setHeard("");
     setListening(true);
     try {
       r.start();
     } catch {
+      clearTimeout(cap);
       setListening(false);
     }
   }, []);
@@ -84,5 +122,5 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
   const stop = useCallback(() => recognition.current?.stop(), []);
   const toggle = useCallback(() => (listening ? stop() : start()), [listening, start, stop]);
 
-  return { supported, listening, error, speak, start, stop, toggle };
+  return { supported, listening, heard, error, speak, start, stop, toggle };
 }
