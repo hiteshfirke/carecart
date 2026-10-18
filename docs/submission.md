@@ -68,7 +68,7 @@ nextjs, react, typescript, tailwindcss, claude, anthropic, paypal, channel3, pos
 - **Claude Code** (Anthropic): planning, writing code and tests, and code review during development.
 
 ## Testing instructions
-Hosted demo: `<Vercel URL>`. Everything is PayPal **sandbox**; no real money moves.
+Hosted demo: https://carecart-seven.vercel.app. Everything is PayPal **sandbox**; no real money moves.
 
 1. Click **Try as Rose**. Allow the microphone, or type in the box.
 2. Say "I need a large print crossword book", then "the first one", then "confirm".
