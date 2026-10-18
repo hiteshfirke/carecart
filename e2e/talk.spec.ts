@@ -15,6 +15,55 @@ const draft = {
   readBack: 'You\'re buying Lipton Green Tea, 100 bags, for eight dollars and forty-nine cents in total, from Target. Say "confirm" or press Confirm to continue, or say "cancel".',
 };
 
+// Never call the real voice service from tests: by default the server voice is "off", so the browser voice is used.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/speech/**", (route) => route.fulfill({ status: 503, json: { error: "voice_off" } }));
+});
+
+// Counts audio plays and browser-voice utterances, finishing each one immediately.
+async function spyOnSpeech(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __played: number; __synth: number };
+    w.__played = 0;
+    w.__synth = 0;
+    HTMLMediaElement.prototype.play = function () {
+      w.__played++;
+      setTimeout(() => this.dispatchEvent(new Event("ended")), 20);
+      return Promise.resolve();
+    };
+    if (window.speechSynthesis) {
+      window.speechSynthesis.speak = (u: SpeechSynthesisUtterance) => {
+        w.__synth++;
+        setTimeout(() => u.onend?.(new Event("end") as SpeechSynthesisEvent), 20);
+      };
+    }
+  });
+}
+// A valid 0.1-second silent WAV, so the browser can load it like real speech audio.
+function silentWav(): Buffer {
+  const rate = 8000;
+  const bytes = (rate / 10) * 2;
+  const b = Buffer.alloc(44 + bytes);
+  b.write("RIFF", 0);
+  b.writeUInt32LE(36 + bytes, 4);
+  b.write("WAVEfmt ", 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36);
+  b.writeUInt32LE(bytes, 40);
+  return b;
+}
+
+const counts = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __played: number; __synth: number };
+  return { played: w.__played, synth: w.__synth };
+});
+
 async function mockAgent(page: Page) {
   await page.route("**/api/agent", async (route) => {
     const { text } = route.request().postDataJSON() as { text: string };
@@ -158,4 +207,84 @@ test("Rose is told when nothing was heard", async ({ page }) => {
   await startAsRose(page);
   await page.getByRole("button", { name: /tap to talk/i }).click();
   await expect(page.getByRole("status").filter({ hasText: "I didn't hear anything" })).toBeVisible();
+});
+
+test("replies use the natural server voice when it is available, in pieces of at most 200 characters", async ({ page }) => {
+  const pieces: string[] = [];
+  await page.route("**/api/speech/speak", (route) => {
+    pieces.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() });
+  });
+  await spyOnSpeech(page);
+  await startAsRose(page);
+  await page.getByLabel("Or type what you need").fill("help");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await counts(page)).played).toBeGreaterThan(0);
+  expect((await counts(page)).synth).toBe(0);
+  expect(pieces.length).toBeGreaterThan(0);
+  expect(pieces.every((p) => p.length <= 200)).toBe(true);
+});
+
+test("falls back to the browser voice when the server voice is off", async ({ page }) => {
+  await spyOnSpeech(page);
+  await startAsRose(page);
+  await page.getByLabel("Or type what you need").fill("help");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await counts(page)).synth).toBeGreaterThan(0);
+  expect((await counts(page)).played).toBe(0);
+});
+
+test("browsers without speech recognition record, stop after a pause, and send the audio to be transcribed", async ({ page }) => {
+  // Fakes for a browser with a microphone but no speech recognition: speech for 0.8 s, then silence.
+  await page.addInitScript(() => {
+    const begun = Date.now();
+    Object.assign(window, {
+      SpeechRecognition: undefined,
+      webkitSpeechRecognition: undefined,
+      MediaRecorder: class {
+        mimeType = "audio/webm";
+        ondataavailable: ((e: { data: Blob }) => void) | null = null;
+        onstop: (() => void) | null = null;
+        start() {
+          setTimeout(() => this.ondataavailable?.({ data: new Blob(["audio"], { type: "audio/webm" }) }), 100);
+        }
+        stop() {
+          setTimeout(() => this.onstop?.(), 10);
+        }
+      },
+      AudioContext: class {
+        createAnalyser() {
+          return {
+            fftSize: 1024,
+            getByteTimeDomainData(samples: Uint8Array) {
+              const speaking = Date.now() - begun < 800;
+              for (let i = 0; i < samples.length; i++) samples[i] = speaking ? (i % 2 ? 200 : 56) : 128;
+            },
+          };
+        }
+        createMediaStreamSource() {
+          return { connect() {} };
+        }
+        close() {
+          return Promise.resolve();
+        }
+      },
+    });
+    Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
+  });
+  const sent: string[] = [];
+  let uploads = 0;
+  await page.route("**/api/speech/transcribe", (route) => {
+    uploads++;
+    return route.fulfill({ json: { text: "I need reading glasses" } });
+  });
+  await page.route("**/api/agent", (route) => {
+    sent.push((route.request().postDataJSON() as { text: string }).text);
+    return route.fulfill({ json: { sessionId: SESSION, reply: "Okay.", options: null, draft: null } });
+  });
+  await startAsRose(page);
+  await page.getByRole("button", { name: /tap to talk/i }).click();
+  await expect(page.getByRole("button", { name: /listening/i })).toBeVisible();
+  await expect.poll(() => sent, { timeout: 10_000 }).toEqual(["I need reading glasses"]);
+  expect(uploads).toBe(1);
 });

@@ -324,10 +324,10 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           className="btn btn-primary w-full text-[1.4rem]"
           style={{ minHeight: 120 }}
           aria-pressed={speech.listening}
-          disabled={speech.supported === false || phase === "busy"}
+          disabled={speech.supported === false || phase === "busy" || speech.transcribing}
           onClick={speech.toggle}
         >
-          {speech.listening ? "Listening… tap to stop" : phase === "busy" ? "Thinking…" : "Tap to talk (Space)"}
+          {speech.listening ? "Listening… tap to stop" : phase === "busy" || speech.transcribing ? "Thinking…" : "Tap to talk (Space)"}
         </button>
         {speech.listening && speech.heard ? <p className="text-center">Heard: &ldquo;{speech.heard}&rdquo;</p> : null}
         {speech.supported === false ? <p>Voice isn&apos;t available in this browser. Please type below.</p> : null}

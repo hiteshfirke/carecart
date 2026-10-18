@@ -1,4 +1,4 @@
-// Live checks against the real services in .env.local: npm run smoke [channel3|paypal|email|ai|agent]
+// Live checks against the real services in .env.local: npm run smoke [channel3|paypal|email|ai|agent|voice]
 import { randomUUID } from "node:crypto";
 import { searchProducts } from "@/lib/channel3";
 import { createPayPalOrder } from "@/lib/paypal";
@@ -7,6 +7,7 @@ import { assessRisk } from "@/lib/risk";
 import { DEMO_ADDRESS } from "@/lib/db";
 import { aiProvider } from "@/lib/ai/provider";
 import { runTurn } from "@/lib/agent/run";
+import { synthesizeSpeech, transcribeAudio } from "@/lib/voice";
 import type { ProductOption } from "@/lib/channel3";
 
 const checks: Record<string, () => Promise<string>> = {
@@ -71,6 +72,15 @@ const checks: Record<string, () => Promise<string>> = {
     });
     if (!result.options?.length) throw new Error(`the model did not search; it said: ${result.reply}`);
     return `${aiProvider()}: ${result.options.length} options in ${Date.now() - started} ms; reply: ${result.reply}`;
+  },
+  // Speaks a sentence with Orpheus, then transcribes the audio back with Whisper.
+  async voice() {
+    const started = Date.now();
+    const wav = await synthesizeSpeech("Hello Rose, I found three reading glasses for you.");
+    const spokeMs = Date.now() - started;
+    const heard = await transcribeAudio(new Blob([wav], { type: "audio/wav" }), "speech.wav");
+    if (!/reading glasses/i.test(heard)) throw new Error(`round trip heard: "${heard}"`);
+    return `spoke ${Math.round(wav.byteLength / 1024)} KB in ${spokeMs} ms; Whisper heard "${heard}" (${Date.now() - started} ms total)`;
   },
 };
 

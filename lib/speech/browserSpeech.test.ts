@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickVoice, recognitionLang, transcriptOf } from "./browserSpeech";
+import { pickVoice, recognitionLang, splitForSpeech, transcriptOf } from "./browserSpeech";
 
 const v = (name: string, lang = "en-US") => ({ name, lang });
 
@@ -39,5 +39,33 @@ describe("transcriptOf", () => {
 
   it("is empty when nothing was heard", () => {
     expect(transcriptOf([])).toBe("");
+  });
+});
+
+describe("splitForSpeech", () => {
+  it("keeps a short reply in one piece", () => {
+    expect(splitForSpeech("Okay. What else do you need?")).toEqual(["Okay. What else do you need?"]);
+  });
+
+  it("packs whole sentences into pieces of at most 200 characters, in order", () => {
+    const text =
+      "Option one: Large Print Crosswords Book, one dollar and fifty cents, from Dollartree. Option two: Take-Along Large Print Crosswords Puzzle Book, one dollar and fifty cents, from Dollartree. Option three: Brain Games Crossword Puzzles, twelve dollars and ten cents, from Target. Which one would you like?";
+    const parts = splitForSpeech(text);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= 200)).toBe(true);
+    expect(parts.join(" ")).toBe(text);
+    expect(parts[0].startsWith("Option one")).toBe(true);
+  });
+
+  it("splits one very long sentence at spaces", () => {
+    const text = Array.from({ length: 80 }, (_, i) => `word${i}`).join(" ");
+    const parts = splitForSpeech(text);
+    expect(parts.every((p) => p.length <= 200)).toBe(true);
+    expect(parts.join(" ")).toBe(text);
+  });
+
+  it("turns unusual hyphens into plain ones and drops empty text", () => {
+    expect(splitForSpeech("fifty\u2011nine dollars")).toEqual(["fifty-nine dollars"]);
+    expect(splitForSpeech("   ")).toEqual([]);
   });
 });

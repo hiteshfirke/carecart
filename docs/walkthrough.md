@@ -93,6 +93,11 @@ So the AI never sees "confirm" as an instruction. A confirmation is a button pre
 
 Why the browser API? It's free, it needs no keys, and it is good enough in Chrome and Safari for short shopping phrases.
 
+**Upgrades on top (Oct 2026):**
+- **A natural voice:** `speak()` first asks `/api/speech/speak` for **Groq Orpheus** audio ("hannah"), one piece of up to 200 characters at a time (`splitForSpeech`), fetching the next piece while the current one plays. Any failure falls back to `speechSynthesis` with the best installed voice (`pickVoice` skips novelty voices).
+- **Listening through pauses:** recognition runs with `continuous: true` and stops after 2 seconds of silence.
+- **Firefox:** without built-in recognition, `MediaRecorder` records the microphone, a level meter stops after a pause, and `/api/speech/transcribe` sends the audio to **Groq Whisper**. Nothing is sent if no speech was detected, because Whisper invents words from silence.
+
 ---
 
 ## Layer 3: The API routes

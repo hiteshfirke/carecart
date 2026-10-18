@@ -27,3 +27,41 @@ export function transcriptOf(results: ArrayLike<ArrayLike<{ transcript: string }
     .replace(/\s+/g, " ")
     .trim();
 }
+
+// Groq's Orpheus voice takes at most 200 characters per request, so replies are spoken in pieces.
+export const SPEECH_CHUNK_MAX = 200;
+
+function packWords(sentence: string, max: number): string[] {
+  const parts: string[] = [];
+  let current = "";
+  for (const word of sentence.split(" ")) {
+    if (current && current.length + 1 + word.length > max) {
+      parts.push(current);
+      current = word;
+    } else {
+      current = current ? `${current} ${word}` : word;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+export function splitForSpeech(text: string, max = SPEECH_CHUNK_MAX): string[] {
+  const clean = text.replace(/[‐‑]/g, "-").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const chunks: string[] = [];
+  let current = "";
+  for (const sentence of clean.split(/(?<=[.!?])\s+/)) {
+    const pieces = sentence.length > max ? packWords(sentence, max) : [sentence];
+    for (const piece of pieces) {
+      if (current && current.length + 1 + piece.length > max) {
+        chunks.push(current);
+        current = piece;
+      } else {
+        current = current ? `${current} ${piece}` : piece;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}

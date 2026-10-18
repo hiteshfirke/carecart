@@ -68,6 +68,12 @@ The PayPal REST API is called directly. The hosted sandbox MCP server was failin
 - **Channel3 API:** real product search.
 - **Claude Code** (Anthropic) was used during development for planning, writing code and tests, and code review.
 
+## Voice
+
+- **Speaking:** replies use **Orpheus** (an open-source voice model, voice "hannah") through Groq when `VOICE_API_KEY` (or a Groq `AI_API_KEY`) is set. Replies are split into pieces of up to 200 characters and played in order. If Groq is unavailable or rate-limited, the browser's own voice takes over automatically, using the most natural English voice installed.
+- **Listening:** Chrome, Edge and Safari use their built-in speech recognition and keep listening until about 2 seconds of silence. Browsers without it (Firefox) record the microphone instead, and **Whisper** (`whisper-large-v3-turbo`) on Groq transcribes it.
+- **Privacy:** with the Groq voice on, reply text is sent to Groq to be spoken, and in browsers without built-in recognition, the recording of what Rose says is sent to Groq to be transcribed. Chrome's built-in recognition sends audio to Google.
+
 ## Accessibility
 
 The target is WCAG 2.2 AA.
