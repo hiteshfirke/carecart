@@ -4,6 +4,7 @@ import type { OrderStatus } from "@/lib/orders/state";
 import type { CreatePayPalOrderInput } from "@/lib/paypal";
 import type { RiskAssessment, RiskInput } from "@/lib/risk";
 import { requestEmail, scamAlertEmail, type SendEmail } from "@/lib/email";
+import { caregiverLink } from "@/lib/caregiver";
 
 export type ConfirmDeps = {
   getOrder(id: string): Promise<Order | null>;
@@ -88,10 +89,13 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
 
   if (!(await claimConfirm(deps, order.id, confirmPatch))) return ALREADY_CONFIRMED;
   const forEmail: Order = { ...order, flags: result.flags, summary: risk?.caregiverSummary ?? null };
+  // Anna may open the email on her own phone, without Rose's cookie, so every link carries this request's token.
+  const caregiverToken = deps.newToken();
+  const link = caregiverLink(deps.appUrl, { id: order.id, caregiverToken });
 
   if (result.route === "blocked") {
-    await deps.transitionOrder(order.id, "BLOCKED", "rules");
-    if (deps.caregiverEmail) await deps.sendEmail({ to: deps.caregiverEmail, ...scamAlertEmail(forEmail, senior, `${deps.appUrl}/caregiver`) });
+    await deps.transitionOrder(order.id, "BLOCKED", "rules", { caregiverToken });
+    if (deps.caregiverEmail) await deps.sendEmail({ to: deps.caregiverEmail, ...scamAlertEmail(forEmail, senior, link) });
     return {
       outcome: "blocked",
       reasons: result.flags.filter((f) => f.code === "S1_SCAM_PRODUCT" || f.code === "S1_SCAM_PHRASE").map((f) => f.message),
@@ -99,9 +103,7 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
     };
   }
 
-  const caregiverToken = deps.newToken();
   await deps.transitionOrder(order.id, "AWAITING_CAREGIVER", "rules", { caregiverToken });
-  const link = `${deps.appUrl}/caregiver/requests/${order.id}?t=${encodeURIComponent(caregiverToken)}`;
   const emailed = deps.caregiverEmail ? await deps.sendEmail({ to: deps.caregiverEmail, ...requestEmail(forEmail, senior, link) }) : false;
   return { outcome: "caregiver", caregiverName: caregiver.name, emailed };
 }

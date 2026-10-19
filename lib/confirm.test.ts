@@ -101,7 +101,10 @@ describe("confirmOrder", () => {
     expect(out.outcome).toBe("blocked");
     if (out.outcome === "blocked") expect(out.reasons.length).toBeGreaterThan(0);
     expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "BLOCKED"]);
+    expect(transitions[1]).toMatchObject({ to: "BLOCKED", patch: { caregiverToken: "TOKEN123" } });
     expect(emails[0].subject).toMatch(/scam/i);
+    // The link works on Anna's own phone: it carries the request token instead of needing Rose's cookie.
+    expect(emails[0].html).toContain("/caregiver/requests/o1?t=TOKEN123");
     expect(paypalCalls).toHaveLength(0);
   });
 

@@ -51,7 +51,7 @@ export function requestEmail(order: Order, senior: User, link: string) {
 export function scamAlertEmail(order: Order, senior: User, link: string) {
   return {
     subject: `Scam warning: CareCart stopped a purchase for ${senior.name}`,
-    html: `<p><strong>We blocked this order because it looks like a scam.</strong> Please check in with ${escapeHtml(senior.name)}.</p>${orderBlock(order, senior)}<p><a href="${escapeHtml(link)}">Open your CareCart dashboard</a></p>`,
+    html: `<p><strong>We blocked this order because it looks like a scam.</strong> Please check in with ${escapeHtml(senior.name)}.</p>${orderBlock(order, senior)}<p><a href="${escapeHtml(link)}">See what was stopped</a></p>`,
   };
 }
 
