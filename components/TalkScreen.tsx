@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSpeech } from "@/hooks/useSpeech";
 import { parseCommand, type Mode } from "@/lib/speech/commands";
 import { caregiverSentMessage, paymentResultMessage } from "@/lib/speech/messages";
@@ -36,6 +37,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const optionsHeading = useRef<HTMLHeadingElement>(null);
   const readBackHeading = useRef<HTMLHeadingElement>(null);
   const handleTextRef = useRef<(text: string) => void>(() => {});
+  const router = useRouter();
   // The last order status Rose was told about. Kept outside the polling effect, which restarts when speech settings change.
   const announced = useRef<{ id: string; status: string } | null>(null);
 
@@ -71,7 +73,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       try {
         const res = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, text }) });
         if (res.status === 401) {
-          window.location.href = "/";
+          router.push("/");
           return;
         }
         const data = (await res.json()) as { sessionId: string; reply: string; options: OptionView[] | null; draft: Draft | null };
@@ -96,7 +98,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         await say("Sorry, I couldn't reach the helper. Please try again.");
       }
     },
-    [sessionId, say, draft, options],
+    [sessionId, say, draft, options, router],
   );
 
   const cancel = useCallback(async () => {

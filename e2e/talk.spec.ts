@@ -348,3 +348,12 @@ test("interrupting speech cancels the request for the next piece", async ({ page
   await page.getByRole("button", { name: /tap to talk/i }).click(); // Rose interrupts
   await expect.poll(() => aborted.length).toBeGreaterThan(0);
 });
+
+test("an expired demo session sends Rose back to the home page", async ({ page }) => {
+  await page.route("**/api/agent", (route) => route.fulfill({ status: 401, json: { error: "no_demo_session" } }));
+  await startAsRose(page);
+  await page.getByLabel("Or type what you need").fill("hello");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "CareCart" })).toBeVisible();
+});
