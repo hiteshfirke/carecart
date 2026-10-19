@@ -299,3 +299,28 @@ test("with a demo running, the home page continues it and makes clear a fresh de
   await page.getByRole("link", { name: "Back to Rose" }).click();
   await expect(page).toHaveURL(/\/talk$/);
 });
+
+test("Rose hears Anna's answer once, even if she changes the voice speed while waiting", async ({ page }) => {
+  await mockAgent(page);
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => route.fulfill({ json: { outcome: "caregiver", caregiverName: "Anna", emailed: true } }));
+  await page.route(`**/api/orders/${ORDER}`, (route) =>
+    route.fulfill({ json: { ...draft, status: "AWAITING_PAYMENT", statusWords: "being paid by Anna", payerRole: "caregiver" } }),
+  );
+  await startAsRose(page);
+  const box = page.getByLabel("Or type what you need");
+  await box.fill("I need green tea");
+  await box.press("Enter");
+  await box.fill("option 1");
+  await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeVisible();
+  await box.fill("confirm");
+  await box.press("Enter");
+  const conversation = page.getByRole("region", { name: "Conversation" });
+  const approved = conversation.getByText(/Anna approved your/);
+  await expect(approved).toHaveCount(1, { timeout: 10_000 });
+  await box.fill("slower");
+  await box.press("Enter");
+  await expect(conversation.getByText("Okay, I'll speak more slowly.")).toBeVisible();
+  await page.waitForTimeout(6500); // more than one polling interval
+  await expect(approved).toHaveCount(1);
+});

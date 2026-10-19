@@ -36,6 +36,8 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const optionsHeading = useRef<HTMLHeadingElement>(null);
   const readBackHeading = useRef<HTMLHeadingElement>(null);
   const handleTextRef = useRef<(text: string) => void>(() => {});
+  // The last order status Rose was told about. Kept outside the polling effect, which restarts when speech settings change.
+  const announced = useRef<{ id: string; status: string } | null>(null);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- reads browser-only state after mount
   useEffect(() => setSettings(loadSettings()), []);
@@ -209,13 +211,14 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   // Announce the caregiver's decision or a pending payment as soon as it changes.
   useEffect(() => {
     if (!watch) return;
-    let last = watch.last;
+    if (announced.current?.id !== watch.id) announced.current = { id: watch.id, status: watch.last };
+    const seen = announced.current;
     const timer = setInterval(async () => {
       const res = await fetch(`/api/orders/${watch.id}`).catch(() => null);
       if (!res?.ok) return;
       const o = (await res.json()) as OrderView;
-      if (o.status === last) return;
-      last = o.status;
+      if (o.status === seen.status) return;
+      seen.status = o.status;
       const payer = o.payerRole === "caregiver" ? `${caregiverName} paid` : "Your payment went through";
       if (o.status === "AWAITING_PAYMENT") void say(`${caregiverName} approved your ${o.title} and is paying for it now.`);
       else if (o.status === "PAID" || o.status === "SHIPPED") {
