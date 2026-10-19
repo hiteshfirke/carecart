@@ -14,7 +14,7 @@ Tick each box as you go. If something doesn't match "Expect", note what you saw.
 ---
 
 ## Part 1: Home page and basics
-- [ ] **1.1 Home:** Open the site. **Expect:** "Try as Rose (shopper)", "Try as Anna (caregiver)", "Start a fresh demo".
+- [ ] **1.1 Home:** Open the site. **Expect:** "Try as Rose (shopper)", "Try as Anna (caregiver)", "Start a fresh demo". (With a demo already running they say "Continue as Rose / Anna", and "Start a fresh demo (new Rose, no orders)".)
 - [ ] **1.2 Fresh demo:** Click **Start a fresh demo**. **Expect:** the talk screen, "Hello Rose".
 - [ ] **1.3 Mic:** Click **Tap to talk (Space)**, allow the microphone, and say "help". **Expect:** spoken help ("Tell me what you need, like 'I need reading glasses'…"), and the same text in the conversation.
 - [ ] **1.4 Repeat:** Say "repeat". **Expect:** the last reply again.
@@ -46,7 +46,7 @@ Tick each box as you go. If something doesn't match "Expect", note what you saw.
 
 ## Part 5: Shipping and order status (same household; no fresh demo yet)
 - [ ] **5.1 Ship:** Open https://carecart-seven.vercel.app/store. **Expect:** the book and the glasses. Press **Ship and add tracking** on the glasses. **Expect:** "Shipped *glasses name*. Tracking 9400… (USPS) was added in PayPal." Ship the book too.
-- [ ] **5.2 Where's my order:** On Rose's talk screen, say "where's my order?" **Expect:** it has shipped, with "USPS tracking ending …".
+- [ ] **5.2 Where's my order:** Press **Back to Rose** on the store page (not "Start a fresh demo", which starts a new Rose with no orders), then say "where's my order?" **Expect:** it has shipped, with "USPS tracking ending …".
 - [ ] **5.3 Orders page:** **My orders** shows both as shipped, with tracking.
 
 ## Part 6: Anna declines

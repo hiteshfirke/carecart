@@ -44,6 +44,9 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
           ))}
         </ul>
       )}
+      <Link href="/talk" className="btn btn-primary inline-flex items-center justify-center">
+        Back to Rose
+      </Link>
       <Link href="/" className="underline">
         Home
       </Link>

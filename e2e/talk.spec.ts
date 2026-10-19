@@ -288,3 +288,14 @@ test("browsers without speech recognition record, stop after a pause, and send t
   await expect.poll(() => sent, { timeout: 10_000 }).toEqual(["I need reading glasses"]);
   expect(uploads).toBe(1);
 });
+
+test("with a demo running, the home page continues it and makes clear a fresh demo starts over", async ({ page }) => {
+  await startAsRose(page);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Continue as Rose (shopper)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue as Anna (caregiver)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start a fresh demo (new Rose, no orders)" })).toBeVisible();
+  await page.goto("/store");
+  await page.getByRole("link", { name: "Back to Rose" }).click();
+  await expect(page).toHaveURL(/\/talk$/);
+});
