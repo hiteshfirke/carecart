@@ -36,3 +36,8 @@ export function checkTransition(from: OrderStatus, to: OrderStatus): TransitionC
 export function isPaidOrLater(status: OrderStatus): boolean {
   return status === "PAID" || status === "SHIPPED";
 }
+
+// Rose may cancel a draft or her own payment in progress, never a payment Anna is making.
+export function seniorCanCancel(order: { status: OrderStatus; payerRole: "senior" | "caregiver" | null }): boolean {
+  return order.status === "DRAFT" || (order.status === "AWAITING_PAYMENT" && order.payerRole !== "caregiver");
+}

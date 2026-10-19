@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTransition, isPaidOrLater } from "./state";
+import { checkTransition, isPaidOrLater, seniorCanCancel } from "./state";
 
 describe("checkTransition", () => {
   it("allows the self-pay path", () => {
@@ -40,5 +40,19 @@ describe("isPaidOrLater", () => {
     expect(isPaidOrLater("PAID")).toBe(true);
     expect(isPaidOrLater("SHIPPED")).toBe(true);
     expect(isPaidOrLater("AWAITING_PAYMENT")).toBe(false);
+  });
+});
+
+describe("seniorCanCancel", () => {
+  it("lets Rose cancel a draft or her own payment in progress", () => {
+    expect(seniorCanCancel({ status: "DRAFT", payerRole: null })).toBe(true);
+    expect(seniorCanCancel({ status: "AWAITING_PAYMENT", payerRole: "senior" })).toBe(true);
+  });
+
+  it("never lets Rose cancel a payment Anna is making, or anything already decided", () => {
+    expect(seniorCanCancel({ status: "AWAITING_PAYMENT", payerRole: "caregiver" })).toBe(false);
+    for (const status of ["CONFIRMED", "AWAITING_CAREGIVER", "PAID", "SHIPPED", "DECLINED", "CANCELLED", "BLOCKED"] as const) {
+      expect(seniorCanCancel({ status, payerRole: null })).toBe(false);
+    }
   });
 });
