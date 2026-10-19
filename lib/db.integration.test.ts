@@ -19,14 +19,29 @@ describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)
     const a = await db.createHousehold(null);
     const b = await db.createHousehold(null);
     const session = await db.createSession(a.senior.id);
-    await db.createDraftOrder({ userId: a.senior.id, sessionId: session.id, product, quantity: 2 });
+    const draft = await db.createDraftOrder({ userId: a.senior.id, sessionId: session.id, product, quantity: 2 });
 
-    expect((await db.listOrders(a.senior.id, 10)).length).toBe(4);
+    expect((await db.getOrder(draft.id))?.userId).toBe(a.senior.id);
+    expect((await db.listOrders(a.senior.id, 10)).length).toBe(3); // drafts are never listed
     expect((await db.listOrders(b.senior.id, 10)).length).toBe(3);
     const historyB = await db.ruleHistory(b.senior.id, "p-tea", "none");
     expect(historyB.recentPaidTotalsCents).toEqual([900, 1200, 800]);
     expect(historyB.paidMerchants.sort()).toEqual(["target.com", "walmart.com"]);
     expect(historyB.minutesSinceSameProduct).toBeNull();
+  });
+
+  it("lists real orders even when many newer drafts exist", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    const session = await db.createSession(h.senior.id);
+    const waiting = await db.createDraftOrder({ userId: h.senior.id, sessionId: session.id, product, quantity: 1 });
+    await db.transitionOrder(waiting.id, "CONFIRMED", "test");
+    await db.transitionOrder(waiting.id, "AWAITING_CAREGIVER", "test");
+    for (let i = 0; i < 5; i++) await db.createDraftOrder({ userId: h.senior.id, sessionId: session.id, product, quantity: 1 });
+
+    const listed = await db.listOrders(h.senior.id, 4);
+    expect(listed.map((o) => o.id)).toContain(waiting.id);
+    expect(listed.every((o) => o.status !== "DRAFT")).toBe(true);
   });
 
   it("computes the draft total from price and quantity", async () => {

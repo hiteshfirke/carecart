@@ -13,7 +13,6 @@ export default async function CaregiverPage({ searchParams }: { searchParams: Pr
   const { senior, caregiver } = household;
   const orders = (await listOrders(senior.id, 15)).map((o) => toOrderView(o, caregiver.name));
   const pending = orders.filter((o) => o.status === "AWAITING_CAREGIVER");
-  const recent = orders.filter((o) => o.status !== "DRAFT");
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4">
@@ -66,7 +65,7 @@ export default async function CaregiverPage({ searchParams }: { searchParams: Pr
           Recent orders
         </h2>
         <ul className="mt-2 flex flex-col gap-2">
-          {recent.map((o) => (
+          {orders.map((o) => (
             <li key={o.id}>
               {o.title}: ${formatUsd(o.totalCents)}, {o.statusWords}
             </li>

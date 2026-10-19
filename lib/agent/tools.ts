@@ -11,7 +11,7 @@ export type AgentDeps = {
   saveOptions(sessionId: string, options: ProductOption[]): Promise<void>;
   getOptions(sessionId: string): Promise<ProductOption[]>;
   createDraftOrder(input: { userId: string; sessionId: string; product: ProductOption; quantity: number }): Promise<Order>;
-  listOrders(userId: string, limit: number): Promise<Order[]>;
+  listOrders(userId: string, limit: number): Promise<Order[]>; // newest first, never drafts
 };
 export type TurnContext = { userId: string; sessionId: string; caregiverName: string };
 export type TurnOutput = { options: ProductOption[] | null; draft: Order | null };
@@ -48,7 +48,7 @@ export async function runDraft(deps: AgentDeps, ctx: TurnContext, out: TurnOutpu
 }
 
 export async function runStatus(deps: AgentDeps, ctx: TurnContext): Promise<string> {
-  const orders = (await deps.listOrders(ctx.userId, 4)).filter((o) => o.status !== "DRAFT");
+  const orders = await deps.listOrders(ctx.userId, 3);
   if (orders.length === 0) return "NO_ORDERS: Tell them they have no recent orders.";
   return JSON.stringify(
     orders.slice(0, 3).map((o) => ({

@@ -8,7 +8,7 @@ import { toOrderView } from "@/lib/orders/view";
 export default async function OrdersPage() {
   const household = await currentHousehold();
   if (!household) redirect("/");
-  const orders = (await listOrders(household.senior.id, 20)).filter((o) => o.status !== "DRAFT").map((o) => toOrderView(o, household.caregiver.name));
+  const orders = (await listOrders(household.senior.id, 20)).map((o) => toOrderView(o, household.caregiver.name));
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 p-4">
       <h1 className="text-[1.6rem] font-bold">{household.senior.name}&apos;s orders</h1>

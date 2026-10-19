@@ -233,8 +233,10 @@ export async function getOrderByPaypalId(paypalOrderId: string): Promise<Order |
   return rows[0] ? toOrder(rows[0]) : null;
 }
 
+// Newest real orders. Drafts are excluded here, not by callers: they pile up from cancels and
+// re-drafts and would otherwise push real orders out of the limit.
 export async function listOrders(userId: string, limit: number): Promise<Order[]> {
-  const rows = (await sql()`select * from orders where user_id = ${userId} order by created_at desc limit ${limit}`) as Row[];
+  const rows = (await sql()`select * from orders where user_id = ${userId} and status <> 'DRAFT' order by created_at desc limit ${limit}`) as Row[];
   return rows.map(toOrder);
 }
 
