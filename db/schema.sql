@@ -75,3 +75,6 @@ create table if not exists daily_usage (
   day date primary key,
   agent_calls integer not null default 0
 );
+
+-- Groq voice calls (speaking pieces and transcriptions) per day, capped by DAILY_SPEECH_CAP.
+alter table daily_usage add column if not exists speech_calls integer not null default 0;

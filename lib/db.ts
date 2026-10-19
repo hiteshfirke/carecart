@@ -317,6 +317,14 @@ export async function bumpDailyAgentCalls(): Promise<number> {
   return rows[0].agent_calls as number;
 }
 
+export async function bumpDailySpeechCalls(): Promise<number> {
+  const rows = (await sql()`
+    insert into daily_usage (day, speech_calls) values (current_date, 1)
+    on conflict (day) do update set speech_calls = daily_usage.speech_calls + 1
+    returning speech_calls`) as Row[];
+  return rows[0].speech_calls as number;
+}
+
 export async function ordersNeedingReminder(hours: number): Promise<Order[]> {
   const rows = (await sql()`
     select * from orders

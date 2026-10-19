@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { synthesizeSpeech, transcribeAudio, voiceConfig, VoiceError } from "./voice";
+import { speechAllowed, synthesizeSpeech, transcribeAudio, voiceConfig, VoiceError } from "./voice";
 
 beforeEach(() => {
   vi.stubEnv("VOICE_API_KEY", "voice-key");
@@ -64,5 +64,22 @@ describe("transcribeAudio", () => {
     expect(form.get("model")).toBe("whisper-large-v3-turbo");
     expect(form.get("language")).toBe("en");
     expect(form.get("file")).toBeInstanceOf(Blob);
+  });
+});
+
+describe("speechAllowed", () => {
+  it("allows speech up to the daily cap, then sends everyone to the browser voice", async () => {
+    vi.stubEnv("DAILY_SPEECH_CAP", "2");
+    let calls = 0;
+    const bump = async () => ++calls;
+    expect(await speechAllowed(bump)).toBe(true);
+    expect(await speechAllowed(bump)).toBe(true);
+    expect(await speechAllowed(bump)).toBe(false);
+  });
+
+  it("defaults to 3000 calls a day", async () => {
+    vi.stubEnv("DAILY_SPEECH_CAP", "");
+    expect(await speechAllowed(async () => 3000)).toBe(true);
+    expect(await speechAllowed(async () => 3001)).toBe(false);
   });
 });

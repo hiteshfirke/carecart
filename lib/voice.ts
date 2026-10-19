@@ -42,6 +42,12 @@ async function send(f: Fetch, url: string, init: RequestInit): Promise<Response>
   return res;
 }
 
+// A daily cap so one visitor can't use up the shared free voice quota; over it, browsers use their own voice.
+export async function speechAllowed(bump: () => Promise<number> = async () => (await import("@/lib/db")).bumpDailySpeechCalls()): Promise<boolean> {
+  const cap = Number(process.env.DAILY_SPEECH_CAP || 3000);
+  return (await bump()) <= cap;
+}
+
 export async function synthesizeSpeech(text: string, f: Fetch = fetch): Promise<ArrayBuffer> {
   const c = requireConfig();
   const res = await send(f, `${c.baseUrl}/audio/speech`, {

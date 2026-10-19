@@ -44,6 +44,12 @@ describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)
     expect(listed.every((o) => o.status !== "DRAFT")).toBe(true);
   });
 
+  it("counts speech calls per day separately from agent calls", async () => {
+    const db = await import("./db");
+    const before = await db.bumpDailySpeechCalls();
+    expect(await db.bumpDailySpeechCalls()).toBe(before + 1);
+  });
+
   it("computes the draft total from price and quantity", async () => {
     const db = await import("./db");
     const h = await db.createHousehold(null);
