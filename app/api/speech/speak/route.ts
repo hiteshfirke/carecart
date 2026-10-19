@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
   try {
-    const audio = await synthesizeSpeech(parsed.data.text);
+    const audio = await synthesizeSpeech(parsed.data.text, fetch, req.signal);
     return new Response(audio, { headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("speech synthesis failed", err instanceof VoiceError ? err.status : null, (err as Error).message);

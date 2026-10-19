@@ -324,3 +324,27 @@ test("Rose hears Anna's answer once, even if she changes the voice speed while w
   await page.waitForTimeout(6500); // more than one polling interval
   await expect(approved).toHaveCount(1);
 });
+
+test("interrupting speech cancels the request for the next piece", async ({ page }) => {
+  const long =
+    "Option one: Lipton Green Tea, one hundred bags, eight dollars and forty-nine cents, from Target. Option two: Bigelow Green Tea, forty bags, five dollars and ninety-nine cents, from Walmart. Option three: Twinings Green Tea, twenty bags, four dollars and forty-nine cents, from Walmart. Which one would you like?";
+  await page.route("**/api/agent", (route) => route.fulfill({ json: { sessionId: SESSION, reply: long, options: null, draft: null } }));
+  let pieces = 0;
+  await page.route("**/api/speech/speak", async (route) => {
+    pieces++;
+    if (pieces > 1) await new Promise((r) => setTimeout(r, 3000)); // the next piece is slow to arrive
+    await route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() }).catch(() => {});
+  });
+  const aborted: string[] = [];
+  page.on("requestfailed", (req) => {
+    if (req.url().includes("/api/speech/speak")) aborted.push(req.failure()?.errorText ?? "");
+  });
+  await spyOnSpeech(page);
+  await fakeRecognition(page, []);
+  await startAsRose(page);
+  await page.getByLabel("Or type what you need").fill("hello");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => pieces).toBeGreaterThan(1); // the second piece is being fetched
+  await page.getByRole("button", { name: /tap to talk/i }).click(); // Rose interrupts
+  await expect.poll(() => aborted.length).toBeGreaterThan(0);
+});

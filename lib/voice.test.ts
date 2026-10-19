@@ -46,6 +46,18 @@ describe("synthesizeSpeech", () => {
     expect(JSON.parse(String(init.body))).toEqual({ model: "canopylabs/orpheus-v1-english", voice: "hannah", input: "Hello Rose.", response_format: "wav" });
   });
 
+  it("stops the Groq request when the browser hangs up", async () => {
+    let sent: AbortSignal | undefined;
+    const f = vi.fn(async (_url: string, init: RequestInit) => {
+      sent = init.signal ?? undefined;
+      throw new DOMException("aborted", "AbortError");
+    });
+    const browser = new AbortController();
+    browser.abort();
+    await expect(synthesizeSpeech("Hi", f as unknown as typeof fetch, browser.signal)).rejects.toBeInstanceOf(VoiceError);
+    expect(sent?.aborted).toBe(true);
+  });
+
   it("throws VoiceError with the status when Groq refuses", async () => {
     const f = vi.fn(async () => new Response("limit", { status: 429 }));
     await expect(synthesizeSpeech("Hi", f as unknown as typeof fetch)).rejects.toMatchObject({ status: 429 });

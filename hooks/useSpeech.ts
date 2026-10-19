@@ -37,10 +37,10 @@ function canRecord(): boolean {
 // The server's natural voice (Groq Orpheus). Once it answers 503 it is off for this page.
 let serverVoice: "unknown" | "on" | "off" = "unknown";
 
-async function fetchSpeech(text: string): Promise<Blob | null> {
+async function fetchSpeech(text: string, signal: AbortSignal): Promise<Blob | null> {
   if (serverVoice === "off") return null;
   try {
-    const res = await fetch("/api/speech/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const res = await fetch("/api/speech/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }), signal });
     if (res.status === 503) serverVoice = "off";
     if (!res.ok) return null;
     serverVoice = "on";
@@ -60,6 +60,7 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
   const voice = useRef<SpeechSynthesisVoice | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const generation = useRef(0); // bumps on every new speak() or listen, so stale audio stops
+  const pending = useRef<AbortController | null>(null); // the pieces being fetched for the current speech
   const onText = useRef(opts.onText);
 
   useEffect(() => {
@@ -82,6 +83,8 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
 
   const silence = useCallback(() => {
     generation.current++;
+    pending.current?.abort(); // don't keep fetching pieces nobody will hear
+    pending.current = null;
     audio.current?.pause();
     audio.current = null;
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -137,12 +140,14 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
       if (opts.muted || typeof window === "undefined") return;
       silence();
       const gen = generation.current;
+      const controller = new AbortController();
+      pending.current = controller;
       const pieces = splitForSpeech(text);
-      let next = pieces.length ? fetchSpeech(pieces[0]) : null;
+      let next = pieces.length ? fetchSpeech(pieces[0], controller.signal) : null;
       for (let i = 0; i < pieces.length; i++) {
         const blob = await next;
         if (gen !== generation.current) return;
-        next = i + 1 < pieces.length ? fetchSpeech(pieces[i + 1]) : null; // fetch ahead while this piece plays
+        next = i + 1 < pieces.length ? fetchSpeech(pieces[i + 1], controller.signal) : null; // fetch ahead while this piece plays
         if (!blob || !(await play(blob, gen))) {
           // The natural voice is unavailable: say the rest with the browser's voice.
           if (gen === generation.current) await speakWithBrowser(pieces.slice(i).join(" "));

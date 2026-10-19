@@ -31,10 +31,11 @@ function requireConfig(): VoiceConfig {
   return config;
 }
 
-async function send(f: Fetch, url: string, init: RequestInit): Promise<Response> {
+async function send(f: Fetch, url: string, init: RequestInit, cancel?: AbortSignal): Promise<Response> {
+  const timeout = AbortSignal.timeout(15_000);
   let res: Response;
   try {
-    res = await f(url, { ...init, signal: AbortSignal.timeout(15_000) });
+    res = await f(url, { ...init, signal: cancel ? AbortSignal.any([cancel, timeout]) : timeout });
   } catch (err) {
     throw new VoiceError(`voice request failed: ${(err as Error).name}`, null);
   }
@@ -48,13 +49,19 @@ export async function speechAllowed(bump: () => Promise<number> = async () => (a
   return (await bump()) <= cap;
 }
 
-export async function synthesizeSpeech(text: string, f: Fetch = fetch): Promise<ArrayBuffer> {
+// `cancel` is the browser's request signal: when Rose interrupts, Groq stops working on audio nobody will hear.
+export async function synthesizeSpeech(text: string, f: Fetch = fetch, cancel?: AbortSignal): Promise<ArrayBuffer> {
   const c = requireConfig();
-  const res = await send(f, `${c.baseUrl}/audio/speech`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: c.ttsModel, voice: c.voice, input: text, response_format: "wav" }),
-  });
+  const res = await send(
+    f,
+    `${c.baseUrl}/audio/speech`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: c.ttsModel, voice: c.voice, input: text, response_format: "wav" }),
+    },
+    cancel,
+  );
   return res.arrayBuffer();
 }
 
