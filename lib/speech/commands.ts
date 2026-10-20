@@ -20,6 +20,21 @@ export function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// Natural speed requests ("speak the slowest you can", "talk quicker"). They must mention speaking, so
+// shopping requests like "a slow cooker" or "a fast charger" still go to the helper.
+const SPEAKING = /\b(speak|speaking|talk|talking|voice|read)\b/;
+const SLOW = /\b(slow|slower|slowest|slowly)\b/;
+const FAST = /\b(fast|faster|fastest|quick|quicker|quickly)\b/;
+
+function speedRequest(t: string): "slower" | "faster" | null {
+  if (/\bslow down\b/.test(t) || t === "too fast") return "slower";
+  if (/\bspeed up\b/.test(t) || t === "too slow") return "faster";
+  if (t.split(" ").length > 8 || !SPEAKING.test(t)) return null;
+  if (SLOW.test(t)) return "slower";
+  if (FAST.test(t)) return "faster";
+  return null;
+}
+
 const ORDINALS: Record<string, 0 | 1 | 2> = { one: 0, first: 0, "1": 0, two: 1, second: 1, "2": 1, three: 2, third: 2, "3": 2 };
 
 const SELECT =
@@ -31,6 +46,8 @@ export function parseCommand(text: string, mode: Mode): Command {
   if (/^(repeat|say that again|say it again|again|what)$/.test(t)) return { type: "repeat" };
   if (/^(slower|slow down|speak slower)$/.test(t)) return { type: "slower" };
   if (/^(faster|speak faster|speed up|go faster)$/.test(t)) return { type: "faster" };
+  const speed = speedRequest(t);
+  if (speed) return { type: speed };
   if (/^(help|what can i say)$/.test(t)) return { type: "help" };
   if (/^(go back|back)$/.test(t)) return { type: "back" };
   if (mode === "confirm" && CONFIRM_PHRASES.has(t)) return { type: "confirm" };

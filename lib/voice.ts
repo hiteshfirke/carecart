@@ -79,7 +79,7 @@ export async function transcribeAudio(audio: Blob, filename: string, f: Fetch = 
   form.append("language", "en");
   form.append("response_format", "json");
   // Biases Whisper towards the words this app hears most.
-  form.append("prompt", "Shopping by voice: reading glasses, crossword book, confirm, cancel, repeat, help.");
+  form.append("prompt", "Shopping by voice: reading glasses, crossword book, confirm, cancel, repeat, help, slower, faster, speak more slowly.");
   const res = await send(f, `${c.baseUrl}/audio/transcriptions`, { method: "POST", headers: { Authorization: `Bearer ${c.apiKey}` }, body: form });
   const data = (await res.json()) as { text?: string };
   return (data.text ?? "").trim();

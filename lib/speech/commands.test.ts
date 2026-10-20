@@ -50,3 +50,21 @@ describe("speed commands", () => {
     }
   });
 });
+
+describe("natural speed requests", () => {
+  it("understands how people actually ask to slow down or speed up", () => {
+    for (const said of ["Speak the slowest you can.", "Speak more slower.", "speak more slowly", "talk slower please", "Please speak slowly", "can you slow down", "too fast"]) {
+      expect(parseCommand(said, "idle")).toEqual({ type: "slower" });
+    }
+    for (const said of ["Speak the fastest you can.", "please speak faster", "talk quicker", "too slow", "speak a bit quicker"]) {
+      expect(parseCommand(said, "idle")).toEqual({ type: "faster" });
+    }
+  });
+
+  it("leaves shopping requests that mention slow or fast to the helper", () => {
+    expect(parseCommand("I need a slow cooker", "idle").type).toBe("say");
+    expect(parseCommand("fast charging cable please", "idle").type).toBe("say");
+    expect(parseCommand("I want slow release vitamins", "idle").type).toBe("say");
+    expect(parseCommand("can you find a slow cooker", "idle").type).toBe("say");
+  });
+});
