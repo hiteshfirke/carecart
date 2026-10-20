@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { speechAllowed, synthesizeSpeech, transcribeAudio, voiceConfig, VoiceError } from "./voice";
+import { speechAllowed, synthesizeSpeech, transcribeAudio, voiceConfig, VoiceError, voiceUnavailable } from "./voice";
 
 beforeEach(() => {
   vi.stubEnv("VOICE_API_KEY", "voice-key");
@@ -93,5 +93,17 @@ describe("speechAllowed", () => {
     vi.stubEnv("DAILY_SPEECH_CAP", "");
     expect(await speechAllowed(async () => 3000)).toBe(true);
     expect(await speechAllowed(async () => 3001)).toBe(false);
+  });
+});
+
+describe("voiceUnavailable", () => {
+  it("treats Groq's rate limit as 'voice off', so browsers stop asking for the rest of the visit", () => {
+    expect(voiceUnavailable(new VoiceError("limit", 429))).toBe(true);
+  });
+
+  it("treats other failures as one-off errors", () => {
+    expect(voiceUnavailable(new VoiceError("bad", 500))).toBe(false);
+    expect(voiceUnavailable(new VoiceError("timeout", null))).toBe(false);
+    expect(voiceUnavailable(new Error("other"))).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentHousehold } from "@/lib/demo";
-import { speechAllowed, transcribeAudio, voiceConfig, VoiceError } from "@/lib/voice";
+import { speechAllowed, transcribeAudio, voiceConfig, VoiceError, voiceUnavailable } from "@/lib/voice";
 
 const MAX_BYTES = 4_000_000; // about 4 minutes of compressed speech; Vercel caps request bodies at 4.5 MB
 
@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ text: await transcribeAudio(audio, name) });
   } catch (err) {
     console.error("transcription failed", err instanceof VoiceError ? err.status : null, (err as Error).message);
+    if (voiceUnavailable(err)) return NextResponse.json({ error: "voice_off" }, { status: 503 });
     return NextResponse.json({ error: "voice_failed" }, { status: 502 });
   }
 }

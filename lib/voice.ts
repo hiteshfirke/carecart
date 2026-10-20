@@ -43,6 +43,12 @@ async function send(f: Fetch, url: string, init: RequestInit, cancel?: AbortSign
   return res;
 }
 
+// Groq's free tier allows Orpheus only a few thousand tokens a day; once it's used up, tell browsers the
+// voice is off (503) so they use their own for the rest of the visit instead of retrying every reply.
+export function voiceUnavailable(err: unknown): boolean {
+  return err instanceof VoiceError && err.status === 429;
+}
+
 // A daily cap so one visitor can't use up the shared free voice quota; over it, browsers use their own voice.
 export async function speechAllowed(bump: () => Promise<number> = async () => (await import("@/lib/db")).bumpDailySpeechCalls()): Promise<boolean> {
   const cap = Number(process.env.DAILY_SPEECH_CAP || 3000);

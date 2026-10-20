@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { currentHousehold } from "@/lib/demo";
 import { SPEECH_CHUNK_MAX } from "@/lib/speech/browserSpeech";
-import { speechAllowed, synthesizeSpeech, voiceConfig, VoiceError } from "@/lib/voice";
+import { speechAllowed, synthesizeSpeech, voiceConfig, VoiceError, voiceUnavailable } from "@/lib/voice";
 
 const Body = z.object({ text: z.string().trim().min(1).max(SPEECH_CHUNK_MAX) });
 
@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     return new Response(audio, { headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("speech synthesis failed", err instanceof VoiceError ? err.status : null, (err as Error).message);
+    if (voiceUnavailable(err)) return NextResponse.json({ error: "voice_off" }, { status: 503 });
     return NextResponse.json({ error: "voice_failed" }, { status: 502 });
   }
 }
