@@ -13,7 +13,8 @@ const product: ProductOption = {
   category: "Tea",
 };
 
-describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)", () => {
+// Neon's free tier sleeps when idle and can take several seconds to wake, so these get more time than unit tests.
+describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)", { timeout: 30_000 }, () => {
   it("keeps two demo households completely separate", async () => {
     const db = await import("./db");
     const a = await db.createHousehold(null);

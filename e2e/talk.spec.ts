@@ -188,10 +188,10 @@ async function fakeRecognition(page: Page, phrases: string[]) {
   }, phrases);
 }
 
-// Fakes a microphone and recorder (Chromium's headless microphone hangs): 0.8 s of speech, then silence.
+// Fakes a microphone and recorder (Chromium's headless microphone hangs): 0.8 s of speech from the moment
+// listening starts, then silence. (Timing from page load made the test depend on how fast the page loaded.)
 async function fakeRecorder(page: Page) {
   await page.addInitScript(() => {
-    const begun = Date.now();
     Object.assign(window, {
       MediaRecorder: class {
         mimeType = "audio/webm";
@@ -206,6 +206,7 @@ async function fakeRecorder(page: Page) {
       },
       AudioContext: class {
         createAnalyser() {
+          const begun = Date.now();
           return {
             fftSize: 1024,
             getByteTimeDomainData(samples: Uint8Array) {
@@ -470,4 +471,54 @@ test.describe("on a phone", () => {
     await expect.poll(() => sent).toEqual(["I want a pair of reading glasses"]);
     expect(await page.evaluate(() => (window as unknown as { __continuous: boolean }).__continuous)).toBe(false);
   });
+
+  test("the microphone level meter is created during the tap, before asking for the microphone (iPhone Safari)", async ({ page }) => {
+    await fakeRecorder(page);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __order: string[]; AudioContext: new () => unknown };
+      w.__order = [];
+      const Ctx = w.AudioContext;
+      w.AudioContext = class extends (Ctx as unknown as new () => object) {
+        constructor() {
+          super();
+          w.__order.push("meter");
+        }
+      } as unknown as new () => unknown;
+      const md = navigator.mediaDevices as unknown as { getUserMedia: () => Promise<unknown> };
+      const gum = md.getUserMedia;
+      md.getUserMedia = () => {
+        w.__order.push("microphone");
+        return gum();
+      };
+    });
+    await page.route("**/api/speech/transcribe", (route) => route.fulfill({ json: { text: "hello" } }));
+    await page.route("**/api/agent", (route) => route.fulfill({ json: { sessionId: SESSION, reply: "Okay.", options: null, draft: null } }));
+    await startAsRose(page);
+    await page.getByRole("button", { name: /tap to talk/i }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __order: string[] }).__order)).toEqual(["meter", "microphone"]);
+  });
+});
+
+test("when a piece fails, the browser voice takes over and the prefetched piece is cancelled", async ({ page }) => {
+  const long =
+    "Option one: Lipton Green Tea, one hundred bags, eight dollars and forty-nine cents, from Target. Option two: Bigelow Green Tea, forty bags, five dollars and ninety-nine cents, from Walmart. Option three: Twinings Green Tea, twenty bags, four dollars and forty-nine cents, from Walmart. Which one would you like?";
+  await page.route("**/api/agent", (route) => route.fulfill({ json: { sessionId: SESSION, reply: long, options: null, draft: null } }));
+  let pieces = 0;
+  await page.route("**/api/speech/speak", async (route) => {
+    pieces++;
+    if (pieces === 1) return route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() });
+    if (pieces === 2) return route.fulfill({ status: 502, json: { error: "voice_failed" } });
+    await new Promise((r) => setTimeout(r, 3000)); // piece 3, still on its way
+    await route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() }).catch(() => {});
+  });
+  const aborted: string[] = [];
+  page.on("requestfailed", (req) => {
+    if (req.url().includes("/api/speech/speak")) aborted.push(req.failure()?.errorText ?? "");
+  });
+  await spyOnSpeech(page);
+  await startAsRose(page);
+  await page.getByLabel("Or type what you need").fill("hello");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await counts(page)).synth).toBeGreaterThan(0); // the browser voice took over
+  await expect.poll(() => aborted.length).toBeGreaterThan(0);
 });
