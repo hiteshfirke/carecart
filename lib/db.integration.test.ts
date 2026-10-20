@@ -30,6 +30,14 @@ describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)
     expect(historyB.minutesSinceSameProduct).toBeNull();
   });
 
+  it("gives the starter orders USPS tracking, like any shipped order", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    const orders = await db.listOrders(h.senior.id, 10);
+    expect(orders).toHaveLength(3);
+    for (const o of orders) expect(o.tracking).toMatchObject({ carrier: "USPS", number: expect.stringMatching(/^9400\d{18}$/) });
+  });
+
   it("lists real orders even when many newer drafts exist", async () => {
     const db = await import("./db");
     const h = await db.createHousehold(null);

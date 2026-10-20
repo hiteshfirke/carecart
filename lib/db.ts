@@ -3,6 +3,7 @@ import type { ProductOption } from "@/lib/channel3";
 import type { AiRisk, Flag, Route, RuleHistory } from "@/lib/safety/rules";
 import { checkTransition, type OrderStatus } from "@/lib/orders/state";
 import { HOUSEHOLD_TIMEZONE, startOfLocalDay } from "@/lib/time";
+import { trackingNumberFor } from "@/lib/store";
 
 type Row = Record<string, unknown>;
 type Sql = ReturnType<typeof neon>;
@@ -145,8 +146,10 @@ export async function createHousehold(caregiverEmail: string | null): Promise<Ho
       rating: null,
       category: "Grocery",
     };
-    await db`insert into orders (id, user_id, product, quantity, total_cents, merchant, status, payer_role, created_at, updated_at)
-             values (${crypto.randomUUID()}, ${seniorId}, ${JSON.stringify(product)}::jsonb, 1, ${cents}, ${merchant}, 'SHIPPED', 'senior',
+    const id = crypto.randomUUID();
+    const tracking: Tracking = { carrier: "USPS", number: trackingNumberFor(id) };
+    await db`insert into orders (id, user_id, product, quantity, total_cents, merchant, status, payer_role, tracking, created_at, updated_at)
+             values (${id}, ${seniorId}, ${JSON.stringify(product)}::jsonb, 1, ${cents}, ${merchant}, 'SHIPPED', 'senior', ${JSON.stringify(tracking)}::jsonb,
                      now() - make_interval(days => ${daysAgo}::int), now() - make_interval(days => ${daysAgo}::int))`;
   }
   const household = await getHousehold(householdId);
