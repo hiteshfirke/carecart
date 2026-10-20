@@ -39,3 +39,14 @@ describe("parseCommand", () => {
     expect(parseCommand("go back", "confirm")).toEqual({ type: "back" });
   });
 });
+
+describe("speed commands", () => {
+  it("understands faster as well as slower, in any mode", () => {
+    for (const mode of ["idle", "options", "confirm"] as const) {
+      expect(parseCommand("faster", mode)).toEqual({ type: "faster" });
+      expect(parseCommand("Speak faster.", mode)).toEqual({ type: "faster" });
+      expect(parseCommand("speed up", mode)).toEqual({ type: "faster" });
+      expect(parseCommand("slower", mode)).toEqual({ type: "slower" });
+    }
+  });
+});

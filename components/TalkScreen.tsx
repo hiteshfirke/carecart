@@ -15,7 +15,11 @@ type Draft = OrderView & { readBack: string };
 type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
 type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
-const HELP = 'Tell me what you need, like "I need reading glasses". You can say "repeat", "slower", "cancel" or "help" at any time.';
+const HELP = 'Tell me what you need, like "I need reading glasses". You can say "repeat", "slower", "faster", "cancel" or "help" at any time.';
+// Speech speed steps are large enough to hear, within a range that stays clear.
+const RATE_STEP = 0.15;
+const MIN_RATE = 0.6;
+const MAX_RATE = 1.2;
 
 export function TalkScreen(props: { seniorName: string; caregiverName: string; returnedOrderId: string | null; paymentResult: string | null }) {
   const { seniorName, caregiverName, returnedOrderId, paymentResult } = props;
@@ -47,11 +51,11 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const { speak } = speech;
 
   const say = useCallback(
-    (text: string) => {
+    (text: string, rate?: number) => {
       lastHelper.current = text;
       setLive(text);
       setLines((l) => [...l, { who: "helper", text }]);
-      return speak(text);
+      return speak(text, rate);
     },
     [speak],
   );
@@ -174,11 +178,16 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         case "repeat":
           await speak(lastHelper.current || HELP);
           return;
-        case "slower": {
-          const next = { ...settings, rate: Math.max(0.6, Number((settings.rate - 0.1).toFixed(2))) };
+        case "slower":
+        case "faster": {
+          const step = cmd.type === "slower" ? -RATE_STEP : RATE_STEP;
+          const rate = Math.min(MAX_RATE, Math.max(MIN_RATE, Number((settings.rate + step).toFixed(2))));
+          const next = { ...settings, rate };
           setSettings(next);
           saveSettings(next);
-          await say("Okay, I'll speak more slowly.");
+          // Said at the new speed, so Rose hears the change straight away.
+          if (rate === settings.rate) await say(cmd.type === "slower" ? "This is my slowest speed." : "This is my fastest speed.", rate);
+          else await say(cmd.type === "slower" ? "Okay, I'll speak more slowly." : "Okay, I'll speak a little faster.", rate);
           return;
         }
         case "help":
@@ -347,7 +356,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       >
         <label htmlFor="typed">Or type what you need</label>
         <div className="flex gap-2">
-          <input id="typed" className="field flex-1" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+          <input id="typed" className="field min-w-0 flex-1" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
           <button type="submit" className="btn">
             Send
           </button>

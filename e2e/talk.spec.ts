@@ -188,6 +188,44 @@ async function fakeRecognition(page: Page, phrases: string[]) {
   }, phrases);
 }
 
+// Fakes a microphone and recorder (Chromium's headless microphone hangs): 0.8 s of speech, then silence.
+async function fakeRecorder(page: Page) {
+  await page.addInitScript(() => {
+    const begun = Date.now();
+    Object.assign(window, {
+      MediaRecorder: class {
+        mimeType = "audio/webm";
+        ondataavailable: ((e: { data: Blob }) => void) | null = null;
+        onstop: (() => void) | null = null;
+        start() {
+          setTimeout(() => this.ondataavailable?.({ data: new Blob(["audio"], { type: "audio/webm" }) }), 100);
+        }
+        stop() {
+          setTimeout(() => this.onstop?.(), 10);
+        }
+      },
+      AudioContext: class {
+        createAnalyser() {
+          return {
+            fftSize: 1024,
+            getByteTimeDomainData(samples: Uint8Array) {
+              const speaking = Date.now() - begun < 800;
+              for (let i = 0; i < samples.length; i++) samples[i] = speaking ? (i % 2 ? 200 : 56) : 128;
+            },
+          };
+        }
+        createMediaStreamSource() {
+          return { connect() {} };
+        }
+        close() {
+          return Promise.resolve();
+        }
+      },
+    });
+    Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
+  });
+}
+
 test("a pause mid-sentence does not cut off what Rose says", async ({ page }) => {
   const sent: string[] = [];
   await page.route("**/api/agent", (route) => {
@@ -235,43 +273,8 @@ test("falls back to the browser voice when the server voice is off", async ({ pa
 });
 
 test("browsers without speech recognition record, stop after a pause, and send the audio to be transcribed", async ({ page }) => {
-  // Fakes for a browser with a microphone but no speech recognition: speech for 0.8 s, then silence.
-  await page.addInitScript(() => {
-    const begun = Date.now();
-    Object.assign(window, {
-      SpeechRecognition: undefined,
-      webkitSpeechRecognition: undefined,
-      MediaRecorder: class {
-        mimeType = "audio/webm";
-        ondataavailable: ((e: { data: Blob }) => void) | null = null;
-        onstop: (() => void) | null = null;
-        start() {
-          setTimeout(() => this.ondataavailable?.({ data: new Blob(["audio"], { type: "audio/webm" }) }), 100);
-        }
-        stop() {
-          setTimeout(() => this.onstop?.(), 10);
-        }
-      },
-      AudioContext: class {
-        createAnalyser() {
-          return {
-            fftSize: 1024,
-            getByteTimeDomainData(samples: Uint8Array) {
-              const speaking = Date.now() - begun < 800;
-              for (let i = 0; i < samples.length; i++) samples[i] = speaking ? (i % 2 ? 200 : 56) : 128;
-            },
-          };
-        }
-        createMediaStreamSource() {
-          return { connect() {} };
-        }
-        close() {
-          return Promise.resolve();
-        }
-      },
-    });
-    Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
-  });
+  await fakeRecorder(page);
+  await page.addInitScript(() => Object.assign(window, { SpeechRecognition: undefined, webkitSpeechRecognition: undefined }));
   const sent: string[] = [];
   let uploads = 0;
   await page.route("**/api/speech/transcribe", (route) => {
@@ -371,4 +374,100 @@ test("every page has a main menu that says who you are and gets you home in one 
   await menu.getByRole("link", { name: "Home" }).click();
   await expect(page).toHaveURL(/\/$/);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+});
+
+test("the talk screen fits a phone screen without sideways scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockAgent(page);
+  await startAsRose(page);
+  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+  expect(await fits()).toBe(true);
+  const box = page.getByLabel("Or type what you need");
+  await box.fill("I need green tea");
+  await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /pick one/i })).toBeVisible();
+  expect(await fits()).toBe(true);
+  await box.fill("option 1");
+  await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeVisible();
+  expect(await fits()).toBe(true);
+});
+
+test("'slower' makes the next reply noticeably slower", async ({ page }) => {
+  await page.route("**/api/speech/speak", (route) => route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() }));
+  await page.addInitScript(() => {
+    const w = window as unknown as { __rates: number[] };
+    w.__rates = [];
+    HTMLMediaElement.prototype.play = function () {
+      w.__rates.push(this.playbackRate);
+      setTimeout(() => this.dispatchEvent(new Event("ended")), 20);
+      return Promise.resolve();
+    };
+  });
+  await startAsRose(page);
+  const box = page.getByLabel("Or type what you need");
+  const rates = () => page.evaluate(() => (window as unknown as { __rates: number[] }).__rates);
+  await box.fill("help");
+  await box.press("Enter");
+  await expect.poll(async () => (await rates()).length).toBe(1);
+  await box.fill("slower");
+  await box.press("Enter");
+  await expect.poll(async () => (await rates()).length).toBe(2);
+  await box.fill("help");
+  await box.press("Enter");
+  await expect.poll(async () => (await rates()).length).toBe(3);
+  const [before, confirmation, after] = await rates();
+  expect(confirmation).toBeLessThanOrEqual(before - 0.15); // the confirmation itself is already slower
+  expect(after).toBeLessThanOrEqual(before - 0.15);
+});
+
+test.describe("on a phone", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36" });
+
+  test("listening records and transcribes instead of Android's repeating recognizer", async ({ page }) => {
+    await fakeRecognition(page, ["I want", "I want a pair", "I want a pair of reading glasses"]);
+    await fakeRecorder(page);
+    const sent: string[] = [];
+    await page.route("**/api/speech/transcribe", (route) => route.fulfill({ json: { text: "I want a pair of reading glasses" } }));
+    await page.route("**/api/agent", (route) => {
+      sent.push((route.request().postDataJSON() as { text: string }).text);
+      return route.fulfill({ json: { sessionId: SESSION, reply: "Okay.", options: null, draft: null } });
+    });
+    await startAsRose(page);
+    await page.getByRole("button", { name: /tap to talk/i }).click();
+    await expect.poll(() => sent, { timeout: 10_000 }).toEqual(["I want a pair of reading glasses"]);
+  });
+
+  test("if the server can't transcribe, the next tap uses the phone's recognizer one phrase at a time", async ({ page }) => {
+    await fakeRecorder(page);
+    await page.addInitScript(() => {
+      // Android's recognizer, recording whether it was asked for continuous mode.
+      class PhoneRecognition {
+        continuous = true;
+        onresult: ((e: unknown) => void) | null = null;
+        onend: (() => void) | null = null;
+        onerror: ((e: unknown) => void) | null = null;
+        start() {
+          (window as unknown as { __continuous: boolean }).__continuous = this.continuous;
+          setTimeout(() => this.onresult?.({ results: [[{ transcript: "I want a pair of reading glasses" }]] }), 100);
+          setTimeout(() => this.onend?.(), 300);
+        }
+        stop() {}
+      }
+      Object.assign(window, { SpeechRecognition: PhoneRecognition, webkitSpeechRecognition: PhoneRecognition });
+    });
+    await page.route("**/api/speech/transcribe", (route) => route.fulfill({ status: 503, json: { error: "voice_off" } }));
+    const sent: string[] = [];
+    await page.route("**/api/agent", (route) => {
+      sent.push((route.request().postDataJSON() as { text: string }).text);
+      return route.fulfill({ json: { sessionId: SESSION, reply: "Okay.", options: null, draft: null } });
+    });
+    await startAsRose(page);
+    const talk = page.getByRole("button", { name: /tap to talk/i });
+    await talk.click();
+    await expect(page.getByText("I didn't hear anything")).toBeVisible({ timeout: 10_000 });
+    await talk.click();
+    await expect.poll(() => sent).toEqual(["I want a pair of reading glasses"]);
+    expect(await page.evaluate(() => (window as unknown as { __continuous: boolean }).__continuous)).toBe(false);
+  });
 });

@@ -5,6 +5,7 @@ export type Command =
   | { type: "cancel" }
   | { type: "repeat" }
   | { type: "slower" }
+  | { type: "faster" }
   | { type: "help" }
   | { type: "back" }
   | { type: "select"; index: 0 | 1 | 2 }
@@ -29,6 +30,7 @@ export function parseCommand(text: string, mode: Mode): Command {
   if (/^(cancel|stop|no|no thanks|never mind|nevermind)$/.test(t)) return { type: "cancel" };
   if (/^(repeat|say that again|say it again|again|what)$/.test(t)) return { type: "repeat" };
   if (/^(slower|slow down|speak slower)$/.test(t)) return { type: "slower" };
+  if (/^(faster|speak faster|speed up|go faster)$/.test(t)) return { type: "faster" };
   if (/^(help|what can i say)$/.test(t)) return { type: "help" };
   if (/^(go back|back)$/.test(t)) return { type: "back" };
   if (mode === "confirm" && CONFIRM_PHRASES.has(t)) return { type: "confirm" };

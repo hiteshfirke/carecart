@@ -30,12 +30,20 @@ function recognitionCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+// Phones: Chrome on Android repeats words in continuous recognition ("I want I want a pair…"),
+// so phones record and let the server transcribe, like browsers without recognition.
+function isPhone(): boolean {
+  return typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 function canRecord(): boolean {
   return typeof window !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
 }
 
 // The server's natural voice (Groq Orpheus). Once it answers 503 it is off for this page.
 let serverVoice: "unknown" | "on" | "off" = "unknown";
+// The server's transcription (Groq Whisper). Once it answers 503, phones fall back to their own recognizer.
+let serverListening: "unknown" | "off" = "unknown";
 
 async function fetchSpeech(text: string, signal: AbortSignal): Promise<Blob | null> {
   if (serverVoice === "off") return null;
@@ -91,14 +99,14 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
   }, []);
 
   const speakWithBrowser = useCallback(
-    (text: string): Promise<void> => {
+    (text: string, rate: number): Promise<void> => {
       if (!("speechSynthesis" in window)) return Promise.resolve();
       return new Promise((resolve) => {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         if (voice.current) utterance.voice = voice.current;
         utterance.lang = voice.current?.lang ?? "en-US";
-        utterance.rate = opts.rate;
+        utterance.rate = rate;
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
         // Browsers may block speech without a user gesture; never wait forever.
@@ -106,17 +114,18 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         window.speechSynthesis.speak(utterance);
       });
     },
-    [opts.rate],
+    [],
   );
 
   // Plays one piece; resolves false if the browser refused to play it.
   const play = useCallback(
-    (blob: Blob, gen: number): Promise<boolean> =>
+    (blob: Blob, gen: number, rate: number): Promise<boolean> =>
       new Promise((resolve) => {
         if (gen !== generation.current) return resolve(true);
         const url = URL.createObjectURL(blob);
         const el = new Audio(url);
-        el.playbackRate = opts.rate;
+        el.defaultPlaybackRate = rate;
+        el.playbackRate = rate;
         el.preservesPitch = true;
         audio.current = el;
         let settled = false;
@@ -132,11 +141,12 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         setTimeout(() => done(true), 30_000);
         el.play().catch(() => done(false));
       }),
-    [opts.rate],
+    [],
   );
 
+  // `rate` overrides the setting for this one call, so "slower" is confirmed at the new speed.
   const speak = useCallback(
-    async (text: string): Promise<void> => {
+    async (text: string, rate: number = opts.rate): Promise<void> => {
       if (opts.muted || typeof window === "undefined") return;
       silence();
       const gen = generation.current;
@@ -148,21 +158,22 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         const blob = await next;
         if (gen !== generation.current) return;
         next = i + 1 < pieces.length ? fetchSpeech(pieces[i + 1], controller.signal) : null; // fetch ahead while this piece plays
-        if (!blob || !(await play(blob, gen))) {
+        if (!blob || !(await play(blob, gen, rate))) {
           // The natural voice is unavailable: say the rest with the browser's voice.
-          if (gen === generation.current) await speakWithBrowser(pieces.slice(i).join(" "));
+          if (gen === generation.current) await speakWithBrowser(pieces.slice(i).join(" "), rate);
           return;
         }
       }
     },
-    [opts.muted, silence, play, speakWithBrowser],
+    [opts.muted, opts.rate, silence, play, speakWithBrowser],
   );
 
   const listenWithRecognition = useCallback((Ctor: RecognitionCtor) => {
     const r = new Ctor();
     r.lang = recognitionLang(navigator.language);
     r.interimResults = true;
-    r.continuous = true;
+    // Continuous mode keeps listening through pauses, but Android repeats words in it.
+    r.continuous = !/Android/i.test(navigator.userAgent);
     r.maxAlternatives = 1;
 
     let text = "";
@@ -245,7 +256,10 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         const form = new FormData();
         form.append("audio", new Blob(parts, { type: recorder.mimeType || "audio/webm" }), "speech");
         const res = await fetch("/api/speech/transcribe", { method: "POST", body: form });
-        if (res.status === 503) setSupported(recognitionCtor() !== null);
+        if (res.status === 503) {
+          serverListening = "off"; // next tap uses the browser's own recognizer, if it has one
+          setSupported(recognitionCtor() !== null);
+        }
         const text = res.ok ? ((await res.json()) as { text?: string }).text?.trim() : "";
         if (text) onText.current(text);
         else setError("no-speech");
@@ -265,8 +279,9 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     setError(null);
     setHeard("");
     const Ctor = recognitionCtor();
-    if (Ctor) listenWithRecognition(Ctor);
-    else if (canRecord()) void listenWithRecorder();
+    const record = canRecord() && serverListening !== "off" && (!Ctor || isPhone());
+    if (record) void listenWithRecorder();
+    else if (Ctor) listenWithRecognition(Ctor);
   }, [silence, listenWithRecognition, listenWithRecorder]);
 
   const stop = useCallback(() => active.current?.stop(), []);

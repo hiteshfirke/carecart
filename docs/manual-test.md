@@ -18,7 +18,7 @@ Every page has a menu at the top (Home, Talk, My orders, Anna's page, Demo store
 - [ ] **1.2 Fresh demo:** Click **Start a fresh demo**. **Expect:** the talk screen, "Hello Rose".
 - [ ] **1.3 Mic:** Click **Tap to talk (Space)**, allow the microphone, and say "help". **Expect:** spoken help ("Tell me what you need, like 'I need reading glasses'…"), and the same text in the conversation.
 - [ ] **1.4 Repeat:** Say "repeat". **Expect:** the last reply again.
-- [ ] **1.5 Slower:** Say "slower". **Expect:** "Okay, I'll speak more slowly", and the next replies are slower.
+- [ ] **1.5 Slower / faster:** Say "slower". **Expect:** "Okay, I'll speak more slowly", already said at the slower speed. Say "faster" to go back.
 - [ ] **1.6 Text size:** Press **A+** twice, then **A−** once. **Expect:** text grows, then shrinks. Reload: the size is remembered.
 - [ ] **1.7 Typing:** Type "help" in **Or type what you need** and press Enter. **Expect:** the same help reply.
 
@@ -75,7 +75,7 @@ Every page has a menu at the top (Home, Talk, My orders, Anna's page, Demo store
 ## Part 11: Accessibility
 - [ ] **11.1 Keyboard only:** Start a fresh demo and don't touch the mouse. Tab to the text box, type a request and press Enter → press **1** → **Enter** to confirm, or **Esc** to cancel. **Expect:** everything is reachable, with a visible focus outline.
 - [ ] **11.2 Screen reader:** Turn on VoiceOver (**Cmd+F5**), press **Screen reader mode**, and make a request. **Expect:** VoiceOver reads each reply **once** while the app's own voice stays silent. On confirm, a focused **Continue to PayPal** link appears instead of jumping away. Cmd+F5 turns VoiceOver off.
-- [ ] **11.3 No speech recognition:** Open the site in Firefox. **Expect:** "Voice isn't available in this browser. Please type below." Typing works.
+- [ ] **11.3 Firefox and phones:** Open the site in Firefox, and on your phone. **Expect:** tap to talk works in both (they record and the server transcribes), with no repeated words.
 - [ ] **11.4 Phone:** Open the site on your phone. **Expect:** big buttons, readable text, and the talk button works in Chrome or Safari.
 
 ## Part 12: Reset
