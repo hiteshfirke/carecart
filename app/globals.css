@@ -11,6 +11,10 @@
   --primary-fg: #ffffff;
   --danger: #a40000;
   --focus: #ffbf00;
+  /* One colour per role in the demo, used only by the role band. */
+  --rose: #0b4dbb;
+  --anna: #0a6b4f;
+  --store: #5c5c5c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,6 +27,9 @@
     --primary: #8ab4ff;
     --primary-fg: #0f1115;
     --danger: #ff8a80;
+    --rose: #8ab4ff;
+    --anna: #6fd3a8;
+    --store: #c4c4c4;
   }
 }
 
@@ -95,4 +102,58 @@ body {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Shared header: wordmark, main menu, and who you are on this page. */
+.site-header {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.wordmark {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.25rem;
+  border-bottom: 3px solid var(--border);
+}
+.site-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 0 0.7rem;
+  margin-bottom: -3px;
+  border-bottom: 6px solid transparent;
+  color: var(--fg);
+  font-weight: 700;
+  text-decoration: none;
+}
+.site-nav a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+.site-nav a[aria-current="page"] {
+  border-bottom-color: var(--primary);
+}
+.role-band {
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  border-left: 10px solid var(--rose);
+  font-weight: 700;
+}
+.role-band[data-role="anna"] {
+  border-left-color: var(--anna);
+}
+.role-band[data-role="store"] {
+  border-left: 10px dashed var(--store);
 }

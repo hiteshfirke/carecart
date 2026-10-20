@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { paymentResultMessage } from "@/lib/speech/messages";
 import { currentHousehold } from "@/lib/demo";
 
@@ -31,20 +30,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ p
           {running ? "Start a fresh demo (new Rose, no orders)" : "Start a fresh demo"}
         </button>
       </form>
-      <nav aria-label="More pages">
-        <ul className="flex gap-6">
-          <li>
-            <Link href="/orders" className="underline">
-              Orders
-            </Link>
-          </li>
-          <li>
-            <Link href="/store" className="underline">
-              Demo store
-            </Link>
-          </li>
-        </ul>
-      </nav>
     </div>
   );
 }

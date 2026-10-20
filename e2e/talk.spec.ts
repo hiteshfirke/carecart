@@ -357,3 +357,18 @@ test("an expired demo session sends Rose back to the home page", async ({ page }
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: "CareCart" })).toBeVisible();
 });
+
+test("every page has a main menu that says who you are and gets you home in one tap", async ({ page }) => {
+  await startAsRose(page);
+  const menu = page.getByRole("navigation", { name: "Main" });
+  await expect(menu.getByRole("link", { name: "Talk" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("You are Rose, the shopper")).toBeVisible();
+  await menu.getByRole("link", { name: "Anna's page" }).click();
+  await expect(page).toHaveURL(/\/caregiver$/);
+  await expect(page.getByText("You are Anna, the caregiver")).toBeVisible();
+  await menu.getByRole("link", { name: "Demo store" }).click();
+  await expect(page.getByText("You are the shop (demo only)")).toBeVisible();
+  await menu.getByRole("link", { name: "Home" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+});

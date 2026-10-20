@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSpeech } from "@/hooks/useSpeech";
 import { parseCommand, type Mode } from "@/lib/speech/commands";
@@ -288,9 +287,6 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[1.6rem] font-bold">Hello {seniorName}</h1>
-        <Link href="/orders" className="underline">
-          My orders
-        </Link>
       </div>
       <SettingsBar
         settings={settings}
