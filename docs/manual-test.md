@@ -9,7 +9,7 @@ Live site: https://carecart-seven.vercel.app. Everything is PayPal **sandbox**; 
 - **Keep Rose's tab open** on the talk screen while Anna approves in another tab. Rose's screen checks every 5 seconds and announces Anna's answer.
 - Products and prices come live from Channel3 and may change a little. When a step names an item, pick the closest match.
 
-Tick each box as you go. If something doesn't match "Expect", note what you saw.
+Every page has a menu at the top (Home, Talk, My orders, Anna's page, Demo store) and a band saying whose view you're in. Tick each box as you go. If something doesn't match "Expect", note what you saw.
 
 ---
 
