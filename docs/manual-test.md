@@ -56,7 +56,7 @@ Tick each box as you go. If something doesn't match "Expect", note what you saw.
 - [ ] **6.4 Why?:** Ask Rose's helper "why was my order sent to Anna?" **Expect:** it explains the reasons.
 
 ## Part 7: Daily limit
-- [ ] **7.1** Rose has paid about $61 today ($1.50 + about $60). Ask for "a crossword puzzle book" and pick one around **$12** (for example Brain Games from Target), then confirm. **Expect:** it goes to Anna because it "would go over today's spending limit" ($60). Decline it.
+- [ ] **7.1** Click **Continue as Anna (caregiver)** on the home page, set **Daily limit (dollars)** to **10**, and save. Then **Continue as Rose**, ask for "a large print crossword book", pick the **$1.50** one and confirm. **Expect:** it goes to Anna, and the email's reasons include "This would go over today's spending limit" (what Rose paid today plus $1.50 is over $10). Decline it, then set the daily limit back to **60**.
 
 ## Part 8: Anna's limits
 - [ ] **8.1 Dashboard:** On the home page, click **Try as Anna (caregiver)**. **Expect:** pending requests (or "Nothing needs your OK right now"), recent orders, and the limits form.
