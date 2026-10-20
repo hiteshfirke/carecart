@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickVoice, recognitionLang, splitForSpeech, transcriptOf } from "./browserSpeech";
+import { pickVoice, recognitionLang, speechTimeoutMs, splitForSpeech, transcriptOf } from "./browserSpeech";
 
 const v = (name: string, lang = "en-US") => ({ name, lang });
 
@@ -67,5 +67,18 @@ describe("splitForSpeech", () => {
   it("turns unusual hyphens into plain ones and drops empty text", () => {
     expect(splitForSpeech("fifty\u2011nine dollars")).toEqual(["fifty-nine dollars"]);
     expect(splitForSpeech("   ")).toEqual([]);
+  });
+});
+
+describe("speechTimeoutMs", () => {
+  it("gives slower speech proportionally more time before giving up", () => {
+    const text = "x".repeat(100);
+    expect(speechTimeoutMs(text, 0.6)).toBeGreaterThan(speechTimeoutMs(text, 0.9));
+    // About 8 characters a second at rate 0.6: 100 characters must not be cut off before ~13 s.
+    expect(speechTimeoutMs(text, 0.6)).toBeGreaterThanOrEqual(15_000);
+  });
+
+  it("never waits forever", () => {
+    expect(speechTimeoutMs("x".repeat(5000), 0.6)).toBeLessThanOrEqual(60_000);
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { pickVoice, recognitionLang, splitForSpeech, transcriptOf } from "@/lib/speech/browserSpeech";
+import { pickVoice, recognitionLang, speechTimeoutMs, splitForSpeech, transcriptOf } from "@/lib/speech/browserSpeech";
 
 type RecognitionResultEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionErrorEvent = { error: string };
@@ -110,7 +110,7 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
         // Browsers may block speech without a user gesture; never wait forever.
-        setTimeout(resolve, Math.min(20_000, 2_000 + text.length * 90));
+        setTimeout(resolve, speechTimeoutMs(text, rate));
         window.speechSynthesis.speak(utterance);
       });
     },
@@ -160,6 +160,7 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
         next = i + 1 < pieces.length ? fetchSpeech(pieces[i + 1], controller.signal) : null; // fetch ahead while this piece plays
         if (!blob || !(await play(blob, gen, rate))) {
           // The natural voice is unavailable: say the rest with the browser's voice.
+          controller.abort(); // the piece being fetched ahead will never play
           if (gen === generation.current) await speakWithBrowser(pieces.slice(i).join(" "), rate);
           return;
         }
@@ -211,11 +212,13 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
   }, []);
 
   // For browsers without speech recognition: record, stop after a pause, and let the server transcribe.
-  const listenWithRecorder = useCallback(async () => {
+  // `context` is created during the tap: Safari on iPhone keeps an AudioContext made later suspended.
+  const listenWithRecorder = useCallback(async (context: AudioContext) => {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      void context.close();
       setError("mic-blocked");
       return;
     }
@@ -224,7 +227,6 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     recorder.ondataavailable = (e) => {
       if (e.data.size) parts.push(e.data);
     };
-    const context = new AudioContext();
     const analyser = context.createAnalyser();
     analyser.fftSize = 1024;
     context.createMediaStreamSource(stream).connect(analyser);
@@ -280,7 +282,11 @@ export function useSpeech(opts: { onText: (text: string) => void; rate: number; 
     setHeard("");
     const Ctor = recognitionCtor();
     const record = canRecord() && serverListening !== "off" && (!Ctor || isPhone());
-    if (record) void listenWithRecorder();
+    if (record) {
+      const context = new AudioContext(); // inside the tap, so iPhone Safari lets it run
+      void context.resume?.();
+      void listenWithRecorder(context);
+    }
     else if (Ctor) listenWithRecognition(Ctor);
   }, [silence, listenWithRecognition, listenWithRecorder]);
 

@@ -65,3 +65,9 @@ export function splitForSpeech(text: string, max = SPEECH_CHUNK_MAX): string[] {
   if (current) chunks.push(current);
   return chunks;
 }
+
+// How long to wait for the browser voice before giving up (it can be blocked without a tap).
+// Slower speech takes proportionally longer, so the wait grows as the rate drops.
+export function speechTimeoutMs(text: string, rate: number): number {
+  return Math.min(60_000, 2_000 + (text.length * 90) / rate);
+}

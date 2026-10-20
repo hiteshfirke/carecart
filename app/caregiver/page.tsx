@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { errorMessage } from "@/lib/errors";
 import { redirect } from "next/navigation";
-import { listOrders } from "@/lib/db";
+import { listOrders, listOrdersByStatus } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { formatUsd } from "@/lib/money";
 import { toOrderView } from "@/lib/orders/view";
@@ -11,8 +11,10 @@ export default async function CaregiverPage({ searchParams }: { searchParams: Pr
   if (!household) redirect("/");
   const sp = await searchParams;
   const { senior, caregiver } = household;
-  const orders = (await listOrders(senior.id, 15)).map((o) => toOrderView(o, caregiver.name));
-  const pending = orders.filter((o) => o.status === "AWAITING_CAREGIVER");
+  const [recent, waiting] = await Promise.all([listOrders(senior.id, 15), listOrdersByStatus(senior.id, ["AWAITING_CAREGIVER"])]);
+  const orders = recent.map((o) => toOrderView(o, caregiver.name));
+  // Queried by status, so an old request never drops out behind newer orders.
+  const pending = waiting.map((o) => toOrderView(o, caregiver.name));
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4">

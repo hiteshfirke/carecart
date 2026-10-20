@@ -100,9 +100,9 @@ npm run dev
 **Tests and checks:**
 
 ```bash
-npm test                     # 128 unit tests (the database suite runs when DATABASE_URL is set)
-npm run e2e                  # 9 Playwright + axe tests (needs DATABASE_URL)
-npm run smoke                # live calls to Channel3, PayPal, Resend, the AI risk check and one agent turn
+npm test                     # unit tests (the database suite runs only when TEST_DATABASE_URL is set)
+npm run e2e                  # Playwright + axe tests (needs TEST_DATABASE_URL, a separate test database)
+npm run smoke                # live calls to Channel3, PayPal, Resend, the AI (risk check and one agent turn) and the voice
 npm run demo:order -- selfpay   # or caregiver / scam: a real order through the confirm step, no Claude needed
 ```
 
