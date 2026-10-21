@@ -10,7 +10,7 @@ This document takes the finished app apart, one layer at a time, from what you s
 
 > **The AI talks. Code moves the money.**
 
-Claude understands what Rose says and finds products. It can never pay, approve, or confirm anything. Every money decision is made by plain TypeScript that has unit tests. Almost every design choice below follows from that one rule.
+The AI (Claude, or a Groq-hosted model in the live demo) understands what Rose says and finds products. It can never pay, approve, or confirm anything. Every money decision is made by plain TypeScript that has unit tests. Almost every design choice below follows from that one rule.
 
 ---
 
@@ -44,7 +44,13 @@ Next.js App Router pages live in `app/`. Interactive pieces live in `components/
 | `/caregiver` | `app/caregiver/page.tsx` | Anna | Pending requests, order history, and spending limits. |
 | `/caregiver/requests/[id]` | `app/caregiver/requests/[id]/page.tsx` | Anna (from email) | One request: AI summary, safety flags, Rose's exact words, **Approve and pay** / **Decline**. |
 | `/orders` | `app/orders/page.tsx` | Rose | Her orders and tracking. |
-| `/store` | `app/store/page.tsx` | Demo only | Plays the shop: **Ship and add tracking** for each paid order. |
+| `/store` | `app/store/page.tsx` | Demo only | Plays the shop: **Ship and add tracking** for each paid order, and **Back to Rose**. |
+
+**One menu on every page** (`components/SiteHeader.tsx` + `SiteNav.tsx`):
+- **Links:** Home, Talk, My orders, Anna's page and Demo store, each 56px tall, with `aria-current` on the current page.
+- **Role band:** a coloured band says whose view you're in: "You are Rose, the shopper" (blue), "You are Anna, the caregiver" (green), "You are the shop (demo only)" (grey).
+- **Only with a demo running:** Anna opening an email link on her own phone has no demo cookie, so links would bounce her home.
+- **Home page:** with a demo running, it offers **Continue as Rose / Anna**, and labels the reset **Start a fresh demo (new Rose, no orders)**.
 
 ### The talk screen is a small state machine
 
@@ -60,7 +66,7 @@ type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
 - `busy`: waiting for the server.
 - `waiting`: Anna has the request. The screen checks the order every 5 seconds (`setInterval` → `GET /api/orders/[id]`) and speaks when it changes.
 
-**Key point: not every word goes to the AI.** Before anything is sent to Claude, the browser runs `parseCommand(text, mode)` from `lib/speech/commands.ts`:
+**Key point: not every word goes to the AI.** Before anything is sent to the AI, the browser runs `parseCommand(text, mode)` from `lib/speech/commands.ts`:
 
 ```ts
 // Exact, whole-utterance matches only. "yes but wait" must never pay.
@@ -86,17 +92,30 @@ So the AI never sees "confirm" as an instruction. A confirmation is a button pre
 
 ## Layer 2: The voice
 
-**File:** `hooks/useSpeech.ts`. The browser's **Web Speech API** does both directions; there's no paid speech service.
-- **Listening:** `SpeechRecognition` (or `webkitSpeechRecognition` in Chrome), one phrase at a time (`continuous: false`). It is **tap to talk**, not hold to talk, which is easier for shaky hands.
-- **Speaking:** `speechSynthesis` with a slow default rate. `speak()` returns a Promise and has a timeout, because browsers sometimes block speech until the user taps something, and the app must never wait forever.
-- **Fallback:** if the browser has no speech recognition (Firefox) or the mic is blocked, a large text box is shown. Everything works by typing.
+**Files:** `hooks/useSpeech.ts` (the hook), `lib/speech/browserSpeech.ts` (pure helpers with unit tests), `lib/voice.ts` (server side, Groq).
 
-Why the browser API? It's free, it needs no keys, and it is good enough in Chrome and Safari for short shopping phrases.
+**Speaking** (`speak()`):
+1. Each reply is split into pieces of up to 200 characters (`splitForSpeech`), because Groq's **Orpheus** voice ("hannah") takes at most 200 per request.
+2. `/api/speech/speak` returns WAV audio for each piece. The next piece is fetched while the current one plays.
+3. **The browser voice takes over on any failure** (`speechSynthesis` with the most natural installed voice; `pickVoice` skips robotic and novelty voices):
+   - Groq is down, or has hit its free daily Orpheus quota (about 3,600 tokens). A Groq rate limit answers **503 "voice off"**, so the browser stops asking for the rest of the visit.
+   - Our own daily cap (`DAILY_SPEECH_CAP`) is reached.
+   - No voice key is set.
+4. Interrupting speech (tap to talk, or a new reply) **aborts** the piece being fetched, down to the Groq call.
+5. **Speed:** "slower" and "faster" (and natural phrasings like "speak the slowest you can") change it in steps of 0.15, between 0.6 and 1.2. The confirmation is already said at the new speed. The browser voice's safety timeout grows at slower speeds (`speechTimeoutMs`).
+6. **Screen-reader mode** mutes the app's voice entirely.
 
-**Upgrades on top (Oct 2026):**
-- **A natural voice:** `speak()` first asks `/api/speech/speak` for **Groq Orpheus** audio ("hannah"), one piece of up to 200 characters at a time (`splitForSpeech`), fetching the next piece while the current one plays. Any failure falls back to `speechSynthesis` with the best installed voice (`pickVoice` skips novelty voices).
-- **Listening through pauses:** recognition runs with `continuous: true` and stops after 2 seconds of silence.
-- **Firefox:** without built-in recognition, `MediaRecorder` records the microphone, a level meter stops after a pause, and `/api/speech/transcribe` sends the audio to **Groq Whisper**. Nothing is sent if no speech was detected, because Whisper invents words from silence.
+**Listening** (`start()`), always **tap to talk**:
+- **Desktop Chrome, Edge and Safari:** built-in `SpeechRecognition` in continuous mode, sending after **2 seconds of silence** (older speakers pause mid-sentence). The words appear on screen as "Heard: …" while Rose speaks.
+- **Phones (Android, iPhone) and Firefox:** `MediaRecorder` records the microphone, and a level meter stops after a pause.
+  - The recording goes to `/api/speech/transcribe` → **Groq Whisper** (`whisper-large-v3-turbo`, about 0.5 s).
+  - Phones use this path because Chrome on Android repeats words in continuous recognition ("I want I want a pair…").
+  - The meter is created **during the tap**, because iPhone Safari keeps one created later switched off.
+  - Nothing is sent if no speech was detected, because Whisper invents words from silence.
+- **If the server can't transcribe:** phones fall back to their own recognizer, one phrase at a time.
+- **No microphone, or a blocked one:** a large text box, and the message "I didn't hear anything…" when nothing was heard.
+
+**Recognition language:** the browser's own English (for example `en-IN`), so accents are understood better.
 
 ---
 
@@ -110,10 +129,10 @@ Route handlers live in `app/api/`. **They are deliberately thin.** Each one does
 | Route | Calls | Purpose |
 |---|---|---|
 | `POST /api/demo/start` | `createHousehold` | Creates or reuses a demo household and sets the cookie |
-| `POST /api/agent` | `runTurn` | One conversation turn with Claude |
+| `POST /api/agent` | `runTurn` | One conversation turn with the AI agent |
 | `GET /api/orders/[id]` | `toOrderView` | Order status, used by the 5-second polling |
 | `POST /api/orders/[id]/confirm` | `confirmOrder` | **The gate:** rules, then pay, Anna, or block |
-| `POST /api/orders/[id]/cancel` | `transitionOrder` | Rose cancels a draft |
+| `POST /api/orders/[id]/cancel` | `seniorCanCancel` | Rose cancels a draft or her own payment in progress (never one Anna is making) |
 | `GET /api/paypal/return` | `handleReturn` | PayPal sends the payer back here; the money is captured |
 | `GET /api/paypal/cancel` | `handleCancel` | The payer pressed cancel on PayPal |
 | `POST /api/paypal/webhook` | `handleWebhook` | PayPal's server-to-server event |
@@ -122,6 +141,8 @@ Route handlers live in `app/api/`. **They are deliberately thin.** Each one does
 | `POST /api/caregiver/limits` | `updateLimits` | Anna changes Rose's limits |
 | `POST /api/store/orders/[id]/ship` | `shipOrder` | Adds tracking to PayPal and marks the order shipped |
 | `GET /api/cron/remind` | `remindCaregivers` | Daily: reminds Anna about requests older than 24 h |
+| `POST /api/speech/speak` | `synthesizeSpeech` | One piece of a reply as Orpheus audio (503 means "use the browser's voice") |
+| `POST /api/speech/transcribe` | `transcribeAudio` | A recording → text, through Whisper (phones and Firefox) |
 
 ### The pattern that makes everything testable: dependency injection
 
@@ -148,7 +169,7 @@ In tests, the same function gets fakes: an in-memory "database", a PayPal that a
 2. **Cost guards:**
    - At most 30 turns per session.
    - At most `DAILY_AGENT_CALL_CAP` calls per day, across all visitors (stored in the `daily_usage` table).
-3. `runTurn` calls Claude through the Anthropic SDK's **tool runner**, which loops "model → tool → model" for us:
+3. `runTurn` calls Claude through the Anthropic SDK's **tool runner** (or, with `AI_PROVIDER=openai-compatible`, runs the same loop itself in `lib/ai/openaiCompat.ts`), which loops "model → tool → model" for us:
 
 ```ts
 // lib/agent/run.ts
@@ -171,7 +192,7 @@ const final = await client().beta.messages.toolRunner({
 Claude is the default. `AI_PROVIDER=openai-compatible` sends the same prompt and the same four tools to any OpenAI-compatible chat API (Groq, Gemini, OpenRouter) through `lib/ai/openaiCompat.ts`, which runs the model → tool → model loop itself and validates every tool argument against the tool's zod schema before running it. `lib/ai/provider.ts` decides which path runs; `toolSpecs()` in `lib/agent/tools.ts` is the single tool list both paths use. The risk check works the same way: on OpenAI-compatible providers it asks for JSON and validates it with `RiskSchema`, and anything that doesn't parse becomes `null`, so the rules alone decide.
 
 ### The four tools (and what they *can't* do)
-| Tool | What it does | Returns to Claude |
+| Tool | What it does | Returns to the model |
 |---|---|---|
 | `search_products` | Searches Channel3 and saves the options on the session | Up to 3 options, with **prices already in words** |
 | `draft_order` | Creates an order with status **`DRAFT`** from option 1–3 | "DRAFT_READY: the app will read it back" |
@@ -188,9 +209,9 @@ Claude is the default. `AI_PROVIDER=openai-compatible` sends the same prompt and
 - If Rose mentions gift cards, wiring money, or a bank or official asking her to pay, say kindly that it sounds like a scam.
 
 ### Failure handling
-- Claude API error → "Sorry, I had trouble just now. Please say that again."
+- AI provider error → "Sorry, I had trouble just now. Please say that again."
 - `stop_reason: "refusal"` → "Sorry, I can't help with that one. Anna can help you."
-- Channel3 down → the tool returns `SEARCH_UNAVAILABLE`, and Claude tells Rose to try again in a minute.
+- Channel3 down → the tool returns `SEARCH_UNAVAILABLE`, and the AI tells Rose to try again in a minute.
 
 ### The read-back is not written by the AI
 When a draft exists, the server builds the read-back with `readBack(order)` in `lib/orders/view.ts`:
@@ -400,8 +421,10 @@ export function canActOnRequest(order, viewer): boolean {
 
 | What | Command | Covers |
 |---|---|---|
-| Unit tests (Vitest) | `npm test` | 128 tests: rules 14, payments 14, caregiver 16, confirm 9, state 8, PayPal 8, Channel3 8, commands 6, money 6, agent tools 6, risk 5, plus DB integration 4 and others |
-| Browser tests (Playwright + axe) | `npx playwright test` | 9 tests: keyboard-only flow, "yes but wait" never pays, screen-reader PayPal link, label-in-name, the caregiver page and dashboard, axe scans with no WCAG 2.2 AA violations |
+| Unit tests (Vitest) | `npm test` | 174 tests, among them: rules, payments, caregiver, confirm, state machine, PayPal, Channel3, voice commands (including natural speed phrases), speech helpers, Groq voice, AI provider switch, plus 8 database tests |
+| Browser tests (Playwright + axe) | `npx playwright test` | 25 tests, among them: keyboard flow, "yes but wait" never pays, screen-reader PayPal link, axe scans, the main menu, phone fit, pauses, phones recording, voice fallback and cancelled prefetch, "slower" audible, Anna's answer announced once |
+| Separate test database | `TEST_DATABASE_URL` | Tests never touch the live data. Playwright refuses to run without it and starts its own server on port 3100 |
+| Live checklist | `docs/manual-test.md` | 41 checks; **all passed on the live site on Oct 20, 2026** |
 | Live service check | `npm run smoke [channel3\|paypal\|email\|claude]` | Calls the real services through the app's own functions |
 | Real money paths without Claude | `npm run demo:order -- selfpay\|caregiver\|scam` | Creates the draft the agent would create, then runs the real `confirmOrder` |
 
@@ -414,7 +437,9 @@ The browser tests mock `/api/agent`, so they test the UI's logic without spendin
 | Decision | Why |
 |---|---|
 | Next.js + TypeScript, one app on Vercel | One codebase for UI and API; serverless with no cold-start server to babysit |
-| Claude Sonnet 5.5, effort `low` | Fast enough for voice, good at tool use; the model ID is in `CLAUDE_MODEL` so it can be swapped |
+| Claude Sonnet 5.5 by default; **Groq (`openai/gpt-oss-120b`) in the live demo** | One setting (`AI_PROVIDER`) switches between them; both use the same prompt, four tools and rules. Groq's free tier carries the demo until an Anthropic key is added |
+| Groq Orpheus voice + Whisper, with browser fallbacks | Natural voice and accurate listening on any device; the browser's own speech covers quota limits and outages |
+| Vercel region **sin1** (Singapore) | Next to the Neon database: conversation turns went from 2.2 s to 1.1 s, measured from India |
 | Browser Web Speech API | Free and needs no keys |
 | Channel3 | Real products from real stores, and a sponsor of the hackathon |
 | Caregiver pays with her own PayPal | Saved payment methods are blocked in the sandbox |
@@ -463,7 +488,7 @@ If you were rebuilding CareCart, this is the order that keeps each step testable
 
 ## Explain it in 60 seconds
 
-> CareCart lets an older or blind person shop by voice. They say what they need, Claude finds real products and reads three options aloud, and they pick one.
+> CareCart lets an older or blind person shop by voice. They say what they need, the AI finds real products and reads three options aloud, and they pick one.
 >
 > Then the app, not the AI, reads the order back, and only an exact "confirm" continues. Plain, tested rules decide what happens next:
 > - Small, normal orders go straight to PayPal.
@@ -482,7 +507,7 @@ Because then anything that can influence the AI can spend money: a mis-heard wor
 **"What if speech recognition mishears 'yes'?"**
 Confirmation needs a whole-phrase match from a short list (`CONFIRM_PHRASES`), and only in the `confirm` phase, right after the order was read back. "Yes but wait" doesn't match. There's a browser test for exactly this.
 
-**"What if Claude is down?"**
+**"What if the AI is down?"**
 Rose hears a retry message, and she can still type. If only the risk check fails, it returns `null` and the rules alone decide. They still gate every order.
 
 **"Can Rose be charged twice?"**

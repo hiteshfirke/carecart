@@ -11,7 +11,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com).
 ## How it works
 
 1. **Rose speaks**: "I need some reading glasses." (She can also type.)
-2. **The AI finds options**: Claude searches real products through Channel3 and reads three of them aloud, with prices in words.
+2. **The AI finds options**: the agent searches real products through Channel3 and reads three of them aloud, with prices in words.
 3. **The app reads the order back**: item, total and store. Only an exact "confirm" / "yes" or the Confirm button continues.
 4. **Safety rules run**: plain, unit-tested code decides the route.
 5. **Payment**:
@@ -21,7 +21,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com).
 
 ## Safety design: the AI talks, code moves the money
 
-Claude has exactly four tools: `search_products`, `draft_order`, `get_order_status` and `explain_safety_flag`. **None of them can create, approve, capture or refund a payment.** Confirmation, the safety rules and every PayPal call live in ordinary, tested code.
+The AI agent has exactly four tools: `search_products`, `draft_order`, `get_order_status` and `explain_safety_flag`. **None of them can create, approve, capture or refund a payment.** Confirmation, the safety rules and every PayPal call live in ordinary, tested code.
 
 | # | Rule | Result |
 |---|---|---|
@@ -39,7 +39,7 @@ Claude has exactly four tools: `search_products`, `draft_order`, `get_order_stat
 ```mermaid
 flowchart LR
   Rose((Rose speaks)) --> Talk[Talk screen]
-  Talk --> Agent["Claude Sonnet 5.5<br/>4 tools, none can pay"]
+  Talk --> Agent["AI agent (Claude or Groq)<br/>4 tools, none can pay"]
   Agent -- search_products --> C3[Channel3]
   Agent -- draft_order --> DB[(Postgres)]
   Talk -- "exact confirm" --> Confirm["Confirm step<br/>rules S1-S7 + AI risk check"]
@@ -63,18 +63,24 @@ The PayPal REST API is called directly. The hosted sandbox MCP server was failin
 
 ## AI tools used
 
-- **Claude Sonnet 5.5** (Anthropic API, TypeScript SDK tool runner): the voice conversation agent, the structured risk check, and the summary sent to the caregiver.
-- **Web Speech API** (built into the browser): speech recognition and speech output.
+- **The conversation agent, risk check and caregiver summary:** **Claude Sonnet 5.5** (Anthropic API, TypeScript SDK tool runner) by default. The live demo currently runs on **`openai/gpt-oss-120b` on Groq** (free tier) through the same code, switched with one setting (`AI_PROVIDER`).
+- **Orpheus** (Canopy Labs' open voice model, voice "hannah") on Groq: the natural voice for every reply.
+- **Whisper** (`whisper-large-v3-turbo`) on Groq: transcribes speech on phones and in Firefox.
+- **Web Speech API** (built into the browser): live recognition on desktop Chrome, Edge and Safari, and the fallback voice.
 - **Channel3 API:** real product search.
 - **Claude Code** (Anthropic) was used during development for planning, writing code and tests, and code review.
 
 ## Voice
 
 - **Speaking:** replies use **Orpheus** (an open-source voice model, voice "hannah") through Groq when `VOICE_API_KEY` (or a Groq `AI_API_KEY`) is set. Replies are split into pieces of up to 200 characters and played in order. If Groq is unavailable or rate-limited, the browser's own voice takes over automatically, using the most natural English voice installed.
-- **Listening:** Chrome, Edge and Safari use their built-in speech recognition and keep listening until about 2 seconds of silence. Browsers without it (Firefox) record the microphone instead, and **Whisper** (`whisper-large-v3-turbo`) on Groq transcribes it.
+- **Listening:** desktop Chrome, Edge and Safari use their built-in speech recognition and keep listening until about 2 seconds of silence. **Phones and Firefox** record the microphone instead (Chrome on Android repeats words in continuous recognition), and **Whisper** (`whisper-large-v3-turbo`) on Groq transcribes it in about half a second.
+- **Speed:** "slower" and "faster" (or "speak the slowest you can") change the speed, and the confirmation is already said at the new speed.
+- **Limits:** Groq's free tier allows Orpheus only a few thousand tokens a day, and `DAILY_SPEECH_CAP` adds our own cap. Past either, replies use the browser voice.
 - **Privacy:** with the Groq voice on, reply text is sent to Groq to be spoken, and in browsers without built-in recognition, the recording of what Rose says is sent to Groq to be transcribed. Chrome's built-in recognition sends audio to Google.
 
 ## Accessibility
+
+- **One menu on every page** (Home, Talk, My orders, Anna's page, Demo store) with `aria-current`, plus a band saying whose view you're in ("You are Rose, the shopper").
 
 The target is WCAG 2.2 AA.
 - Large text with A+ / A− controls, high contrast, buttons at least 64px tall, and a visible focus outline.
@@ -83,6 +89,10 @@ The target is WCAG 2.2 AA.
 - **Screen-reader mode:** the app's own voice turns off and replies are announced through an `aria-live` region, so two voices never talk over each other.
 - Browsers without speech recognition get a large text box.
 - axe-core checks run in the Playwright tests.
+
+## Hosting
+
+Vercel, in region **sin1** (Singapore, next to the Neon database). That halved response times compared with Washington: a conversation turn went from 2.2 s to 1.1 s (see `docs/latency.md`).
 
 ## Run locally
 
@@ -119,6 +129,7 @@ Open the demo and click **Try as Rose**. To pay, log in with the PayPal **sandbo
 - Emails go only to the configured `DEMO_CAREGIVER_EMAIL` (Resend's test sender).
 - Demo households are reached by link and cookie, with no login. Anyone with a caregiver request link can act on it.
 - English only.
+- Groq's free Orpheus quota covers a few dozen spoken replies a day; after that the browser voice speaks.
 - Channel3 has no grocery items, so the demo uses things like reading glasses and large-print crossword books.
 
 ## License

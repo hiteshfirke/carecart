@@ -6,7 +6,7 @@ Copy each section into the matching Devpost field. Fill the `<…>` placeholders
 CareCart
 
 ## Tagline
-Voice-first shopping for older and blind shoppers, with a caregiver safety net and scam blocking, built on PayPal and Claude.
+Voice-first shopping for older and blind shoppers, with a caregiver safety net and scam blocking, built on PayPal and open AI models.
 
 ## Inspiration
 Online checkout is built for people who can see small buttons and move fast: popups, tiny text, timers, CAPTCHAs. Many older and blind shoppers give up, or hand their card details to someone else. Older adults are also the main target of gift-card and "your bank called" scams, where a stranger on the phone tells them exactly what to buy.
@@ -15,7 +15,7 @@ A voice assistant could fix the first problem and make the second one worse: an 
 
 ## What it does
 1. **Rose speaks** (or types): "I need a large print crossword book."
-2. **Claude finds real products** through Channel3 and reads three options aloud, with prices in words.
+2. **The AI agent finds real products** through Channel3 and reads three options aloud, with prices in words.
 3. **The app reads the order back** (item, total, store). Only an exact "confirm" or "yes", or the Confirm button, continues. "Yes but wait" never pays.
 4. **Plain, tested safety rules decide the route:**
    - **Small, normal orders:** Rose pays with PayPal herself, guided by voice.
@@ -27,11 +27,17 @@ Everything works by voice, by keyboard (Space, 1–3, Enter, Esc) and with a scr
 
 ## How we built it
 - **App:** Next.js 16 + TypeScript + Tailwind, hosted on Vercel; Neon Postgres; Resend for email.
-- **AI:** Claude Sonnet 5.5 through the Anthropic TypeScript SDK tool runner. It has exactly four tools: `search_products`, `draft_order`, `get_order_status`, `explain_safety_flag`. **None of them can create, approve or capture a payment.** A second, structured Claude call rates each order's risk and writes the summary Anna reads; it can only add caution.
+- **AI:** an agent on Claude Sonnet 5.5 (Anthropic TypeScript SDK tool runner) or, as in the live demo, `openai/gpt-oss-120b` on Groq, switched with one setting. It has exactly four tools: `search_products`, `draft_order`, `get_order_status`, `explain_safety_flag`. **None of them can create, approve or capture a payment.** A second, structured AI call rates each order's risk and writes the summary Anna reads; it can only add caution.
 - **Safety:** rules S1–S7 (scam products and phrases, Rose's own limit, a daily cap, unusual amounts, new stores, duplicates, AI risk) are pure functions with unit tests. Orders move through a forward-only state machine with compare-and-set updates, so the PayPal return page and the webhook can both arrive and the order is still paid exactly once.
 - **PayPal:** Orders v2 create and capture with `PayPal-Request-Id` idempotency keys, `experience_context` with `PAY_NOW` and `SET_PROVIDED_ADDRESS`, order tracking (`/v2/checkout/orders/{id}/track`), and webhooks verified with `verify-webhook-signature`.
-- **Voice:** the browser's Web Speech API for listening and speaking, with a large text box where speech isn't available.
-- **Quality:** 128 unit tests, 9 Playwright end-to-end tests with axe accessibility scans, and every money path verified against the real PayPal sandbox.
+- **Voice:**
+  - **Speaking:** Groq's **Orpheus** voice ("hannah"), streamed in 200-character pieces, with the browser's own voice as an automatic fallback.
+  - **Listening:** the browser's live recognition on desktop. **Phones and Firefox** record the microphone and **Whisper** transcribes it.
+  - A large text box works everywhere.
+- **Hosting:** Vercel in Singapore, next to the Neon database, which halved response times.
+- **Quality:**
+  - 174 unit tests, and 25 Playwright end-to-end tests with axe accessibility scans, run against a separate test database.
+  - A 41-check manual test passed on the live site, with every money path verified against the real PayPal sandbox.
 
 ## Challenges we ran into
 - **PayPal's hosted MCP server failed** for every request during the hackathon ("Unsupported cache mode"), so we call the PayPal REST API directly; PayPal staff confirmed that's fine.
@@ -39,6 +45,9 @@ Everything works by voice, by keyboard (Space, 1–3, Enter, Esc) and with a scr
 - **Making "yes" safe:** speech recognition mishears. The app reads every order back and accepts only exact confirm phrases; anything else is treated as conversation.
 - **Two voices at once:** a screen reader and the app's speech talked over each other, so we added a screen-reader mode that routes every reply through an `aria-live` region instead.
 - **Sandbox accounts take the developer's country.** Our Indian developer account's default sandbox accounts couldn't pay a US store ("This seller doesn't accept payments in your currency"); US sandbox accounts fixed it.
+- **Phones repeated words:** Chrome on Android's continuous recognition returned "I want I want I want…", so phones record the microphone and Whisper transcribes it.
+- **Latency across the world:** the app ran in Washington while the database was in Singapore. Moving the app next to the database halved every response.
+- **A free voice quota:** Orpheus's free tier allows only a few dozen replies a day, so the browser voice takes over automatically.
 - **Real catalogs have gaps:** Channel3 has no groceries, so we tested every demo phrase against the live API before scripting the video.
 
 ## Accomplishments that we're proud of
@@ -59,11 +68,14 @@ Everything works by voice, by keyboard (Space, 1–3, Enter, Esc) and with a scr
 - Testing with more older and blind shoppers and their families.
 
 ## Built with
-nextjs, react, typescript, tailwindcss, claude, anthropic, paypal, channel3, postgresql, neon, resend, vercel, web-speech-api, vitest, playwright, axe-core
+nextjs, react, typescript, tailwindcss, claude, anthropic, groq, whisper, orpheus, paypal, channel3, postgresql, neon, resend, vercel, web-speech-api, vitest, playwright, axe-core
 
 ## AI tools used (required)
-- **Claude Sonnet 5.5** (Anthropic API): the voice shopping agent, the structured risk check and the caregiver summary.
-- **Web Speech API:** speech recognition and speech output in the browser.
+- **Claude Sonnet 5.5** (Anthropic API): the default model for the voice shopping agent, the structured risk check and the caregiver summary.
+- **gpt-oss-120b on Groq:** the same agent, risk check and summary in the live demo (free tier), through an OpenAI-compatible client.
+- **Orpheus on Groq** (Canopy Labs' open text-to-speech model): the natural voice.
+- **Whisper large-v3-turbo on Groq:** speech recognition on phones and in Firefox.
+- **Web Speech API:** live speech recognition on desktop, and the fallback voice.
 - **Channel3 API:** real product search.
 - **Claude Code** (Anthropic): planning, writing code and tests, and code review during development.
 
