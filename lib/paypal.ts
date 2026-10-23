@@ -47,7 +47,8 @@ async function call<T>(f: Fetch, path: string, body: string | undefined, request
   return json as T;
 }
 
-export type CreatePayPalOrderInput = {
+export type CreatePurchaseInput = {
+  kind?: "purchase";
   orderId: string;
   title: string;
   unitCents: number;
@@ -58,38 +59,94 @@ export type CreatePayPalOrderInput = {
   requestId: string;
 };
 
-export function buildOrderBody(i: CreatePayPalOrderInput) {
-  const total = formatUsd(i.unitCents * i.quantity);
+// A gift is a PayPal order whose money goes to a family member's PayPal account (payee), with nothing to ship.
+export type CreateGiftInput = {
+  kind: "gift";
+  orderId: string;
+  title: string;
+  amountCents: number;
+  payeeEmail: string;
+  senderName: string;
+  returnUrl: string;
+  cancelUrl: string;
+  requestId: string;
+};
+
+export type CreatePayPalOrderInput = CreatePurchaseInput | CreateGiftInput;
+
+type UsdAmount = { currency_code: "USD"; value: string };
+
+type OrderBody = {
+  intent: "CAPTURE";
+  purchase_units: {
+    reference_id: string;
+    custom_id: string;
+    description: string;
+    payee?: { email_address: string };
+    amount: UsdAmount & { breakdown: { item_total: UsdAmount } };
+    items: { name: string; quantity: string; unit_amount: UsdAmount; category: "PHYSICAL_GOODS" | "DIGITAL_GOODS" }[];
+    shipping?: {
+      type: "SHIPPING";
+      name: { full_name: string };
+      address: { address_line_1: string; admin_area_2: string; admin_area_1: string; postal_code: string; country_code: string };
+    };
+  }[];
+  payment_source: {
+    paypal: {
+      experience_context: {
+        brand_name: string;
+        shipping_preference: "SET_PROVIDED_ADDRESS" | "NO_SHIPPING";
+        user_action: "PAY_NOW";
+        return_url: string;
+        cancel_url: string;
+      };
+    };
+  };
+};
+
+export function buildOrderBody(i: CreatePayPalOrderInput): OrderBody {
+  const gift = i.kind === "gift";
+  const unitCents = gift ? i.amountCents : i.unitCents;
+  const quantity = gift ? 1 : i.quantity;
+  const total = formatUsd(unitCents * quantity);
   const name = i.title.slice(0, 127);
-  return {
-    intent: "CAPTURE",
-    purchase_units: [
+  const unit: OrderBody["purchase_units"][number] = {
+    reference_id: i.orderId,
+    custom_id: i.orderId,
+    description: gift ? `Gift from ${i.senderName}`.slice(0, 127) : name,
+    amount: { currency_code: "USD", value: total, breakdown: { item_total: { currency_code: "USD", value: total } } },
+    items: [
       {
-        reference_id: i.orderId,
-        custom_id: i.orderId,
-        description: name,
-        amount: { currency_code: "USD", value: total, breakdown: { item_total: { currency_code: "USD", value: total } } },
-        items: [
-          { name, quantity: String(i.quantity), unit_amount: { currency_code: "USD", value: formatUsd(i.unitCents) }, category: "PHYSICAL_GOODS" },
-        ],
-        shipping: {
-          type: "SHIPPING",
-          name: { full_name: i.shipTo.fullName },
-          address: {
-            address_line_1: i.shipTo.line1,
-            admin_area_2: i.shipTo.city,
-            admin_area_1: i.shipTo.state,
-            postal_code: i.shipTo.postalCode,
-            country_code: i.shipTo.countryCode,
-          },
-        },
+        name,
+        quantity: String(quantity),
+        unit_amount: { currency_code: "USD", value: formatUsd(unitCents) },
+        category: gift ? "DIGITAL_GOODS" : "PHYSICAL_GOODS",
       },
     ],
+  };
+  if (gift) {
+    unit.payee = { email_address: i.payeeEmail };
+  } else {
+    unit.shipping = {
+      type: "SHIPPING",
+      name: { full_name: i.shipTo.fullName },
+      address: {
+        address_line_1: i.shipTo.line1,
+        admin_area_2: i.shipTo.city,
+        admin_area_1: i.shipTo.state,
+        postal_code: i.shipTo.postalCode,
+        country_code: i.shipTo.countryCode,
+      },
+    };
+  }
+  return {
+    intent: "CAPTURE",
+    purchase_units: [unit],
     payment_source: {
       paypal: {
         experience_context: {
-          brand_name: "CareCart Demo Store",
-          shipping_preference: "SET_PROVIDED_ADDRESS",
+          brand_name: gift ? "CareCart" : "CareCart Demo Store",
+          shipping_preference: gift ? "NO_SHIPPING" : "SET_PROVIDED_ADDRESS",
           user_action: "PAY_NOW",
           return_url: i.returnUrl,
           cancel_url: i.cancelUrl,
@@ -113,17 +170,18 @@ export async function createPayPalOrder(input: CreatePayPalOrderInput, f: Fetch 
 
 type CaptureResponse = {
   status: string;
-  purchase_units?: { payments?: { captures?: { id: string; status: string }[] } }[];
+  purchase_units?: { payee?: { email_address?: string }; payments?: { captures?: { id: string; status: string }[] } }[];
 };
 
 export async function capturePayPalOrder(
   paypalOrderId: string,
   requestId: string,
   f: Fetch = fetch,
-): Promise<{ orderStatus: string; captureId: string | null; captureStatus: string | null }> {
+): Promise<{ orderStatus: string; captureId: string | null; captureStatus: string | null; payeeEmail?: string }> {
   const res = await call<CaptureResponse>(f, `/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, undefined, requestId);
-  const capture = res.purchase_units?.[0]?.payments?.captures?.[0] ?? null;
-  return { orderStatus: res.status, captureId: capture?.id ?? null, captureStatus: capture?.status ?? null };
+  const unit = res.purchase_units?.[0];
+  const capture = unit?.payments?.captures?.[0] ?? null;
+  return { orderStatus: res.status, captureId: capture?.id ?? null, captureStatus: capture?.status ?? null, payeeEmail: unit?.payee?.email_address };
 }
 
 export async function addTracking(paypalOrderId: string, captureId: string, tracking: Tracking, f: Fetch = fetch): Promise<void> {

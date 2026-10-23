@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addTracking, capturePayPalOrder, createPayPalOrder, PayPalError, resetTokenCache, verifyWebhook } from "./paypal";
+import { addTracking, buildOrderBody, capturePayPalOrder, createPayPalOrder, PayPalError, resetTokenCache, verifyWebhook } from "./paypal";
 import { DEMO_ADDRESS } from "./db";
 
 type Canned = { status?: number; body: unknown; headers?: Record<string, string> };
@@ -73,6 +73,28 @@ describe("createPayPalOrder", () => {
   });
 });
 
+describe("buildOrderBody", () => {
+  it("builds a gift order that pays the recipient, with no shipping", () => {
+    const body = buildOrderBody({ kind: "gift", orderId: "o9", title: "Gift to Sam", amountCents: 2000, payeeEmail: "sam@example.com", senderName: "Rose", returnUrl: "https://a/r", cancelUrl: "https://a/c", requestId: "x" });
+    const unit = body.purchase_units[0];
+    expect(unit.payee).toEqual({ email_address: "sam@example.com" });
+    expect(unit.amount.value).toBe("20.00");
+    expect(unit.items[0].category).toBe("DIGITAL_GOODS");
+    expect(unit.description).toBe("Gift from Rose");
+    expect("shipping" in unit).toBe(false);
+    expect(body.payment_source.paypal.experience_context.shipping_preference).toBe("NO_SHIPPING");
+  });
+
+  it("leaves purchase orders unchanged", () => {
+    const body = buildOrderBody(input);
+    const unit = body.purchase_units[0];
+    expect("payee" in unit).toBe(false);
+    expect(unit.shipping?.name).toEqual({ full_name: DEMO_ADDRESS.fullName });
+    expect(unit.items[0].category).toBe("PHYSICAL_GOODS");
+    expect(body.payment_source.paypal.experience_context).toMatchObject({ brand_name: "CareCart Demo Store", shipping_preference: "SET_PROVIDED_ADDRESS" });
+  });
+});
+
 describe("capturePayPalOrder", () => {
   it("captures with an idempotency key and returns the capture id", async () => {
     const { f, calls } = fakeFetch([
@@ -83,6 +105,15 @@ describe("capturePayPalOrder", () => {
     expect(r).toEqual({ orderStatus: "COMPLETED", captureId: "CAP1", captureStatus: "COMPLETED" });
     expect(calls[1].url).toBe("https://api-m.sandbox.paypal.com/v2/checkout/orders/PP1/capture");
     expect(header(calls[1].init, "PayPal-Request-Id")).toBe("capture-ord-1");
+  });
+
+  it("reports the payee PayPal credited, so a gift can be checked", async () => {
+    const { f } = fakeFetch([
+      TOKEN,
+      { status: 201, body: { id: "PP1", status: "COMPLETED", purchase_units: [{ payee: { email_address: "sam@example.com" }, payments: { captures: [{ id: "CAP1", status: "COMPLETED" }] } }] } },
+    ]);
+    const r = await capturePayPalOrder("PP1", "capture-ord-1", f);
+    expect(r.payeeEmail).toBe("sam@example.com");
   });
 });
 

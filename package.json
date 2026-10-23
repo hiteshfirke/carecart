@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "smoke": "tsx --env-file=.env.local scripts/smoke.ts",
-    "demo:order": "tsx --env-file=.env.local scripts/demo-order.ts"
+    "demo:order": "tsx --env-file=.env.local scripts/demo-order.ts",
+    "gift:spike": "tsx --env-file=.env.local scripts/gift-spike.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
