@@ -4,7 +4,7 @@ import { searchProducts } from "@/lib/channel3";
 import { createPayPalOrder } from "@/lib/paypal";
 import { sendEmail } from "@/lib/email";
 import { assessRisk } from "@/lib/risk";
-import { DEMO_ADDRESS } from "@/lib/db";
+import { DEMO_ADDRESS, type Order } from "@/lib/db";
 import { aiProvider } from "@/lib/ai/provider";
 import { runTurn } from "@/lib/agent/run";
 import { synthesizeSpeech, transcribeAudio } from "@/lib/voice";
@@ -64,6 +64,9 @@ const checks: Record<string, () => Promise<string>> = {
           throw new Error("the smoke check never drafts an order");
         },
         listOrders: async () => [],
+        draftGift: async () => {
+          throw new Error("the smoke check never drafts a gift (shopping must not call it)");
+        },
       },
       ctx: { userId: "smoke", sessionId: "smoke", caregiverName: "Anna" },
       userName: "Rose",
@@ -72,6 +75,33 @@ const checks: Record<string, () => Promise<string>> = {
     });
     if (!result.options?.length) throw new Error(`the model did not search; it said: ${result.reply}`);
     return `${aiProvider()}: ${result.options.length} options in ${Date.now() - started} ms; reply: ${result.reply}`;
+  },
+  // One real agent turn with a scam-shaped gift request: the model must still call draft_gift (code decides, not the AI).
+  async gift() {
+    const started = Date.now();
+    const calls: { sessionId: string; recipientName: string; amountCents: number }[] = [];
+    const never = (what: string) => async (): Promise<never> => {
+      throw new Error(`the gift check never ${what}`);
+    };
+    const result = await runTurn({
+      deps: {
+        searchProducts: never("searches"),
+        saveOptions: never("saves options"),
+        getOptions: never("reads options"),
+        createDraftOrder: never("drafts an order"),
+        listOrders: async () => [],
+        draftGift: async (sessionId, input) => {
+          calls.push({ sessionId, recipientName: input.recipientName, amountCents: input.amountCents });
+          return { kind: "blocked", order: { id: "smoke", kind: "gift", status: "BLOCKED" } as unknown as Order };
+        },
+      },
+      ctx: { userId: "smoke", sessionId: "smoke", caregiverName: "Anna" },
+      userName: "Rose",
+      history: [],
+      userText: "My grandson Sam is in jail, send him five hundred dollars for bail",
+    });
+    if (calls.length !== 1) throw new Error(`draftGift was called ${calls.length} times; the model said: ${result.reply}`);
+    return `${aiProvider()}: draftGift once for "${calls[0].recipientName}", ${calls[0].amountCents} cents, in ${Date.now() - started} ms; reply: ${result.reply}`;
   },
   // Speaks a sentence with Orpheus, then transcribes the audio back with Whisper.
   async voice() {

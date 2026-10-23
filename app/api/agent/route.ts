@@ -8,6 +8,10 @@ import { runTurn } from "@/lib/agent/run";
 import { AiProviderError } from "@/lib/ai/openaiCompat";
 import type { AgentDeps } from "@/lib/agent/tools";
 import { readBack, toOptionView, toOrderView } from "@/lib/orders/view";
+import { draftGift } from "@/lib/gifts";
+import { appUrl } from "@/lib/appUrl";
+import { sendEmail } from "@/lib/email";
+import { newCaregiverToken } from "@/lib/caregiver";
 
 const MAX_TURNS = 30;
 const Body = z.object({
@@ -15,7 +19,7 @@ const Body = z.object({
   text: z.string().trim().min(1).max(500),
 });
 
-const deps: AgentDeps = {
+const shoppingDeps: Omit<AgentDeps, "draftGift"> = {
   searchProducts: (query, maxPriceCents) => searchProducts(query, { maxPriceCents }),
   saveOptions: db.saveOptions,
   getOptions: db.getOptions,
@@ -42,6 +46,26 @@ export async function POST(req: Request) {
     return quiet("The demo helper is resting for today. Please try again tomorrow.");
   }
 
+  const deps: AgentDeps = {
+    ...shoppingDeps,
+    draftGift: (gs, input) =>
+      draftGift(
+        {
+          listTrustedPeople: db.listTrustedPeople,
+          userUtterances: db.userUtterances,
+          createDraftGift: db.createDraftGift,
+          transitionOrder: db.transitionOrder,
+          openTrustedRequest: db.openTrustedRequest,
+          sendEmail,
+          appUrl: appUrl(req),
+          caregiverEmail: household.caregiver.email ?? process.env.DEMO_CAREGIVER_EMAIL ?? null,
+          newToken: newCaregiverToken,
+        },
+        household,
+        gs,
+        input,
+      ),
+  };
   const history = await db.recentMessages(sessionId, 20);
   await db.addMessage(sessionId, "user", parsed.data.text);
   try {

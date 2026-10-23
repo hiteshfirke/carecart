@@ -3,6 +3,7 @@ import { z } from "zod";
 import { speakUsd } from "@/lib/money";
 import type { ProductOption } from "@/lib/channel3";
 import type { Order } from "@/lib/db";
+import type { DraftGiftInput, DraftGiftResult } from "@/lib/gifts";
 import { merchantName, statusWords } from "@/lib/orders/view";
 import type { ToolSpec } from "@/lib/ai/openaiCompat";
 
@@ -12,6 +13,7 @@ export type AgentDeps = {
   getOptions(sessionId: string): Promise<ProductOption[]>;
   createDraftOrder(input: { userId: string; sessionId: string; product: ProductOption; quantity: number }): Promise<Order>;
   listOrders(userId: string, limit: number): Promise<Order[]>; // newest first, never drafts
+  draftGift(sessionId: string, input: DraftGiftInput): Promise<DraftGiftResult>;
 };
 export type TurnContext = { userId: string; sessionId: string; caregiverName: string };
 export type TurnOutput = { options: ProductOption[] | null; draft: Order | null };
@@ -45,6 +47,34 @@ export async function runDraft(deps: AgentDeps, ctx: TurnContext, out: TurnOutpu
   const order = await deps.createDraftOrder({ userId: ctx.userId, sessionId: ctx.sessionId, product, quantity: input.quantity ?? 1 });
   out.draft = order;
   return "DRAFT_READY: The app will now read the order back and ask them to confirm. Reply only with: Let me read that back to you.";
+}
+
+export async function runDraftGift(
+  deps: AgentDeps,
+  ctx: TurnContext,
+  out: TurnOutput,
+  input: { recipient_name: string; amount_dollars: number; note?: string },
+): Promise<string> {
+  const result = await deps.draftGift(ctx.sessionId, {
+    recipientName: input.recipient_name,
+    amountCents: Math.round(input.amount_dollars * 100),
+    note: input.note ?? null,
+  });
+  switch (result.kind) {
+    case "draft":
+      out.draft = result.order;
+      return "DRAFT_READY: The app will now read the gift back and ask them to confirm. Reply only with: Let me read that back to you.";
+    case "ambiguous":
+      return `AMBIGUOUS: More than one person matches. Ask which one they mean: ${result.names.join(" or ")}.`;
+    case "not_trusted":
+      return `NOT_TRUSTED: Tell them kindly that ${result.name} isn't on their list of people they can send money to. ${
+        result.emailed ? `${ctx.caregiverName} was asked to add them.` : `${ctx.caregiverName} can add them on the caregiver page.`
+      } Nothing was sent.`;
+    case "blocked":
+      return `BLOCKED: Tell them kindly that you stopped this because it sounds like a scam: real family doesn't ask for secret or urgent money. Nothing was sent, and ${ctx.caregiverName} has been told.`;
+    case "bad_amount":
+      return "BAD_AMOUNT: Gifts can be from one cent up to five hundred dollars. Ask how much they would like to send.";
+  }
 }
 
 export async function runStatus(deps: AgentDeps, ctx: TurnContext): Promise<string> {
@@ -90,6 +120,16 @@ export function toolSpecs(deps: AgentDeps, ctx: TurnContext, out: TurnOutput): T
         quantity: z.number().int().min(1).max(10).optional(),
       }),
       (input) => runDraft(deps, ctx, out, input),
+    ),
+    tool(
+      "draft_gift",
+      "Prepare a gift of money to someone on their trusted list. This does NOT send anything; the app reads it back and asks them to confirm.",
+      z.object({
+        recipient_name: z.string().trim().min(1).max(60).describe("Who they want to send it to, as they said it, e.g. 'Sam' or 'my grandson'"),
+        amount_dollars: z.number().positive().max(500),
+        note: z.string().max(60).optional().describe("A few words about what it is for, only if they said"),
+      }),
+      (input) => runDraftGift(deps, ctx, out, input),
     ),
     tool("get_order_status", "Get the status and tracking of their recent orders.", z.object({}), () => runStatus(deps, ctx)),
     tool("explain_safety_flag", "Explain why a recent order was stopped or sent to their caregiver.", z.object({}), () => runExplain(deps, ctx)),
