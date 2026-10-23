@@ -55,6 +55,25 @@ describe("matchTrusted", () => {
     expect(matchTrusted(people, "SAM")).toEqual([sam]);
     expect(matchTrusted(people, "  My Neighbor ")).toEqual([ben]);
   });
+  it("finds the name or relationship inside a longer phrase, in either order", () => {
+    expect(matchTrusted(people, "my grandson Sam")).toEqual([sam]);
+    expect(matchTrusted(people, "Sam my grandson")).toEqual([sam]);
+    expect(matchTrusted(people, "my neighbor")).toEqual([ben]);
+    expect(matchTrusted(people, "my neighbor Ben")).toEqual([ben]);
+    expect(matchTrusted([sam, samJr, ben], "my grandson Max")).toEqual([samJr]);
+  });
+  it("only matches whole words", () => {
+    expect(matchTrusted(people, "Samantha")).toEqual([]);
+    expect(matchTrusted(people, "my grandsons")).toEqual([]);
+    expect(matchTrusted(people, "Bensonhurst Ben2")).toEqual([]);
+  });
+  it("prefers an exact match, then the name, then the relationship", () => {
+    const anne: TrustedPerson = { id: "t4", householdId: "h1", name: "Mary Ann", relationship: "sister", paypalEmail: "ma@example.com" };
+    expect(matchTrusted([anne, sam], "Mary Ann")).toEqual([anne]);
+    expect(matchTrusted([anne, sam], "my sister Mary Ann")).toEqual([anne]);
+    // The name wins over the relationship when both appear: "sister" alone would also be Mary Ann.
+    expect(matchTrusted([anne, sam], "my sister Sam")).toEqual([sam]);
+  });
   it("matches nobody who is not on the list", () => {
     expect(matchTrusted(people, "Tom")).toEqual([]);
   });
@@ -85,6 +104,15 @@ describe("draftGift", () => {
     ]);
     expect(transitions).toHaveLength(0);
     expect(emails).toHaveLength(0);
+  });
+
+  it("drafts when Rose says the relationship and the name together", async () => {
+    const { deps, drafts, emails, requests } = setup();
+    const out = await draftGift(deps, household, "s1", { recipientName: "my grandson Sam", amountCents: 2000, note: null });
+    expect(out.kind).toBe("draft");
+    expect(drafts[0].payee.trustedPersonId).toBe("t1");
+    expect(emails).toHaveLength(0);
+    expect(requests).toHaveLength(0);
   });
 
   it("asks which person when the name matches several", async () => {

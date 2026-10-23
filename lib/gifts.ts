@@ -28,10 +28,21 @@ export type DraftGiftResult =
 
 const snapshot = (p: TrustedPerson): Payee => ({ trustedPersonId: p.id, name: p.name, relationship: p.relationship, paypalEmail: p.paypalEmail });
 
-// What Rose said ("Sam", "my grandson") against the trusted list, by exact name or relationship.
+// Whole words only, so "Sam" is in "my grandson Sam" but not in "Samantha".
+function hasWords(text: string, phrase: string): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(text);
+}
+
+// What Rose said ("Sam", "my grandson", "my grandson Sam") against the trusted list.
+// The whole phrase as a name or relationship wins; then a name inside it; then a relationship inside it.
 export function matchTrusted(people: TrustedPerson[], spoken: string): TrustedPerson[] {
   const said = spoken.toLowerCase().trim().replace(/^my\s+/, "").trim();
-  return people.filter((p) => p.name.toLowerCase() === said || p.relationship?.toLowerCase() === said);
+  const exact = people.filter((p) => p.name.toLowerCase() === said || p.relationship?.toLowerCase() === said);
+  if (exact.length > 0) return exact;
+  const byName = people.filter((p) => p.name.trim() && hasWords(said, p.name.toLowerCase().trim()));
+  if (byName.length > 0) return byName;
+  return people.filter((p) => p.relationship?.trim() && hasWords(said, p.relationship.toLowerCase().trim()));
 }
 
 export function trustedRequestLink(appUrl: string, r: Pick<TrustedRequest, "id" | "token">): string {
