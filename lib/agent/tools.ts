@@ -54,7 +54,7 @@ export async function runStatus(deps: AgentDeps, ctx: TurnContext): Promise<stri
     orders.slice(0, 3).map((o) => ({
       item: o.product.title,
       total: speakUsd(o.totalCents),
-      status: statusWords(o.status, ctx.caregiverName),
+      status: statusWords(o.status, ctx.caregiverName, o.kind),
       tracking: o.tracking ? `${o.tracking.carrier} tracking ending ${o.tracking.number.slice(-4)}` : null,
     })),
   );
@@ -63,7 +63,7 @@ export async function runStatus(deps: AgentDeps, ctx: TurnContext): Promise<stri
 export async function runExplain(deps: AgentDeps, ctx: TurnContext): Promise<string> {
   const flagged = (await deps.listOrders(ctx.userId, 5)).find((o) => o.flags.length > 0);
   if (!flagged) return "NO_FLAGS: Tell them none of their recent orders were stopped.";
-  return JSON.stringify({ item: flagged.product.title, status: statusWords(flagged.status, ctx.caregiverName), reasons: flagged.flags.map((f) => f.message) });
+  return JSON.stringify({ item: flagged.product.title, status: statusWords(flagged.status, ctx.caregiverName, flagged.kind), reasons: flagged.flags.map((f) => f.message) });
 }
 
 function tool<S extends z.ZodType>(name: string, description: string, inputSchema: S, run: (input: z.infer<S>) => Promise<string>): ToolSpec {

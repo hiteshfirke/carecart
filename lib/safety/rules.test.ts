@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { evaluateRules, type RuleInput } from "./rules";
+import { evaluateRules, GIFT_SCAM_MESSAGE, type RuleInput } from "./rules";
 
 function input(overrides: Partial<RuleInput> = {}): RuleInput {
   const base: RuleInput = {
-    order: { totalCents: 1000, productId: "p1", title: "Lipton Green Tea, 100 bags", category: "Tea", merchant: "walmart.com" },
+    order: { totalCents: 1000, productId: "p1", title: "Lipton Green Tea, 100 bags", category: "Tea", merchant: "walmart.com", kind: "purchase" },
     limits: { selfPayLimitCents: 2500, dailyCapCents: 6000 },
     history: { paidTodayCents: 0, recentPaidTotalsCents: [800, 1200, 900], paidMerchants: ["walmart.com"], minutesSinceSameProduct: null },
     transcript: ["I need some green tea"],
@@ -28,7 +28,7 @@ describe("evaluateRules", () => {
 
   it("S1 blocks gift cards and similar products", () => {
     for (const title of ["Apple Gift Card $100", "Visa Prepaid Debit Card", "Bitcoin voucher", "Western Union money order"]) {
-      const r = evaluateRules(input({ order: { title, totalCents: 1000, productId: "g", category: null, merchant: "walmart.com" } }));
+      const r = evaluateRules(input({ order: { title, totalCents: 1000, productId: "g", category: null, merchant: "walmart.com", kind: "purchase" } }));
       expect(r.route).toBe("blocked");
       expect(codes(r)).toContain("S1_SCAM_PRODUCT");
     }
@@ -41,7 +41,7 @@ describe("evaluateRules", () => {
   });
 
   it("S1 does not block ordinary words that look similar", () => {
-    const r = evaluateRules(input({ transcript: ["I need a phone charger wire", "and a warranty card"], order: { title: "USB-C charger wire", totalCents: 900, productId: "c", category: null, merchant: "walmart.com" } }));
+    const r = evaluateRules(input({ transcript: ["I need a phone charger wire", "and a warranty card"], order: { title: "USB-C charger wire", totalCents: 900, productId: "c", category: null, merchant: "walmart.com", kind: "purchase" } }));
     expect(r.route).toBe("self_pay");
   });
 
@@ -104,5 +104,50 @@ describe("evaluateRules", () => {
   it("blocked wins over everything", () => {
     const r = evaluateRules(input({ order: { title: "Google Play gift card", totalCents: 50000 } as RuleInput["order"], history: { minutesSinceSameProduct: 1 } as RuleInput["history"] }));
     expect(r.route).toBe("blocked");
+  });
+
+  describe("gifts", () => {
+    const gift = (order: Partial<RuleInput["order"]> = {}, overrides: Partial<RuleInput> = {}) =>
+      input({ order: { totalCents: 2000, productId: "gift:t1", title: "Gift to Sam", category: "gift", merchant: "Sam", kind: "gift", ...order }, ...overrides });
+
+    it("blocks a gift when the conversation mentions jail", () => {
+      const r = evaluateRules(gift({}, { transcript: ["Grandma it's Sam, I'm in jail, I need bail"] }));
+      expect(r.route).toBe("blocked");
+      expect(r.flags.find((f) => f.code === "S1_SCAM_PHRASE")?.message).toBe(GIFT_SCAM_MESSAGE);
+    });
+
+    it.each(["arrested", "lawyer", "accident", "hospital", "new phone number", "courier", "send it today"])("blocks a gift when they say %s", (phrase) => {
+      const r = evaluateRules(gift({}, { transcript: [`Sam told me about the ${phrase}`] }));
+      expect(r.route).toBe("blocked");
+      expect(codes(r)).toContain("S1_SCAM_PHRASE");
+    });
+
+    it("gift-only scam words don't block purchases", () => {
+      const r = evaluateRules(input({ transcript: ["I need a hospital bed"] }));
+      expect(codes(r)).not.toContain("S1_SCAM_PHRASE");
+      expect(r.route).toBe("self_pay");
+    });
+
+    it("skips the new-store rule for gifts", () => {
+      const r = evaluateRules(gift());
+      expect(codes(r)).not.toContain("S5_NEW_MERCHANT");
+      expect(r.route).toBe("self_pay");
+    });
+
+    it('"Gift to Sam" is not a scam product', () => {
+      expect(codes(evaluateRules(gift()))).not.toContain("S1_SCAM_PRODUCT");
+    });
+
+    it("a gift titled with gift cards is still blocked", () => {
+      const r = evaluateRules(gift({ title: "Gift to Sam (gift cards)" }));
+      expect(r.route).toBe("blocked");
+      expect(codes(r)).toContain("S1_SCAM_PRODUCT");
+    });
+
+    it("over-limit gifts go to the caregiver", () => {
+      const r = evaluateRules(gift({ totalCents: 3000 }));
+      expect(r.route).toBe("caregiver");
+      expect(codes(r)).toContain("S2_OVER_SELF_PAY_LIMIT");
+    });
   });
 });

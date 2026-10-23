@@ -1,6 +1,6 @@
 import { speakUsd } from "@/lib/money";
 import type { ProductOption } from "@/lib/channel3";
-import type { Order, Role, Tracking } from "@/lib/db";
+import type { Order, OrderKind, Role, Tracking } from "@/lib/db";
 import type { OrderStatus } from "./state";
 
 export type OrderView = {
@@ -12,6 +12,8 @@ export type OrderView = {
   totalCents: number;
   totalWords: string;
   merchant: string;
+  kind: OrderKind;
+  recipient: string | null;
   status: OrderStatus;
   statusWords: string;
   flags: string[];
@@ -36,12 +38,16 @@ export function merchantName(domain: string): string {
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
-export function readBack(o: Pick<Order, "product" | "quantity" | "totalCents" | "merchant">): string {
+export function readBack(o: Pick<Order, "product" | "quantity" | "totalCents" | "merchant" | "kind" | "payee">): string {
+  if (o.kind === "gift") {
+    const who = o.payee ? `${o.payee.name}${o.payee.relationship ? `, your ${o.payee.relationship}` : ""}` : o.merchant;
+    return `You're sending ${speakUsd(o.totalCents)} to ${who}, through PayPal. Say "confirm" or press Confirm to continue, or say "cancel".`;
+  }
   const what = o.quantity > 1 ? `${o.quantity} of ${o.product.title}` : o.product.title;
   return `You're buying ${what}, for ${speakUsd(o.totalCents)} in total, from ${merchantName(o.merchant)}. Say "confirm" or press Confirm to continue, or say "cancel".`;
 }
 
-export function statusWords(status: OrderStatus, caregiverName: string): string {
+export function statusWords(status: OrderStatus, caregiverName: string, kind: OrderKind = "purchase"): string {
   switch (status) {
     case "DRAFT":
       return "not confirmed yet";
@@ -50,9 +56,9 @@ export function statusWords(status: OrderStatus, caregiverName: string): string 
     case "AWAITING_CAREGIVER":
       return `waiting for ${caregiverName} to approve`;
     case "AWAITING_PAYMENT":
-      return "waiting for the PayPal payment";
+      return kind === "gift" ? "approved, waiting for you to send it" : "waiting for the PayPal payment";
     case "PAID":
-      return "paid, and the store is getting it ready";
+      return kind === "gift" ? "sent" : "paid, and the store is getting it ready";
     case "SHIPPED":
       return "shipped";
     case "DECLINED":
@@ -73,9 +79,11 @@ export function toOrderView(o: Order, caregiverName: string): OrderView {
     quantity: o.quantity,
     totalCents: o.totalCents,
     totalWords: speakUsd(o.totalCents),
-    merchant: merchantName(o.merchant),
+    merchant: o.payee?.name ?? merchantName(o.merchant),
+    kind: o.kind,
+    recipient: o.payee?.name ?? null,
     status: o.status,
-    statusWords: statusWords(o.status, caregiverName),
+    statusWords: statusWords(o.status, caregiverName, o.kind),
     flags: o.flags.map((f) => f.message),
     tracking: o.tracking,
     declineReason: o.declineReason,

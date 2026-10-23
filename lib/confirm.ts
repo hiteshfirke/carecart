@@ -51,7 +51,7 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
   ]);
 
   const result = evaluateRules({
-    order: { totalCents: order.totalCents, productId: order.product.productId, title: order.product.title, category: order.product.category, merchant: order.merchant },
+    order: { totalCents: order.totalCents, productId: order.product.productId, title: order.product.title, category: order.product.category, merchant: order.merchant, kind: order.kind },
     limits: { selfPayLimitCents: senior.selfPayLimitCents, dailyCapCents: senior.dailyCapCents },
     history,
     transcript,

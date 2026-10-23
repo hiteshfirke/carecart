@@ -1,3 +1,4 @@
+import type { OrderKind } from "@/lib/db";
 import type { Cents } from "@/lib/money";
 
 export type FlagCode =
@@ -23,7 +24,7 @@ export type RuleHistory = {
 };
 
 export type RuleInput = {
-  order: { totalCents: Cents; productId: string; title: string; category: string | null; merchant: string };
+  order: { totalCents: Cents; productId: string; title: string; category: string | null; merchant: string; kind: OrderKind };
   limits: { selfPayLimitCents: Cents; dailyCapCents: Cents };
   history: RuleHistory;
   transcript: string[]; // Rose's own words in this session
@@ -55,6 +56,25 @@ const SCAM_PHRASES: RegExp[] = [
   /\bgrandson\s+(is\s+)?in\s+trouble\b/i,
 ];
 
+// Only checked for gifts: the classic "grandchild in trouble" scripts that ask for money sent to a person.
+const GIFT_SCAM_PHRASES: RegExp[] = [
+  /\bjail\b/i,
+  /\barrested\b/i,
+  /\blawyer\b/i,
+  /\baccident\b/i,
+  /\bhospital\b/i,
+  /\bnew\s+(phone\s+)?number\b/i,
+  /\bcourier\b/i,
+  /\bsend\s+it\s+today\b/i,
+];
+
+export const GIFT_SCAM_MESSAGE = "Something said in this conversation sounds like a common scam, like someone in trouble asking for money in secret.";
+
+export function scamPhraseIn(transcript: string[], kind: OrderKind): boolean {
+  const said = transcript.join("\n");
+  return SCAM_PHRASES.some((r) => r.test(said)) || (kind === "gift" && GIFT_SCAM_PHRASES.some((r) => r.test(said)));
+}
+
 const PRESSURE_WORD = /\burgent(ly)?\b/i;
 
 const BLOCKING: ReadonlySet<FlagCode> = new Set(["S1_SCAM_PRODUCT", "S1_SCAM_PHRASE"]);
@@ -81,8 +101,11 @@ export function evaluateRules(input: RuleInput): RuleResult {
   if (SCAM_PRODUCT.test(`${order.title} ${order.category ?? ""}`)) {
     flags.push({ code: "S1_SCAM_PRODUCT", message: "Gift cards, prepaid cards, crypto and money transfers can't be bought here. Scammers often ask for these." });
   }
-  if (SCAM_PHRASES.some((r) => r.test(said))) {
-    flags.push({ code: "S1_SCAM_PHRASE", message: "Something said in this conversation sounds like a common scam, like a bank or official asking you to pay." });
+  if (scamPhraseIn(input.transcript, order.kind)) {
+    flags.push({
+      code: "S1_SCAM_PHRASE",
+      message: order.kind === "gift" ? GIFT_SCAM_MESSAGE : "Something said in this conversation sounds like a common scam, like a bank or official asking you to pay.",
+    });
   }
   if (PRESSURE_WORD.test(said)) {
     flags.push({ code: "S1_PRESSURE_WORD", message: "This sounded urgent, so your caregiver will take a quick look." });
@@ -99,7 +122,7 @@ export function evaluateRules(input: RuleInput): RuleResult {
   }
   const merchant = order.merchant.toLowerCase();
   const knownMerchant = history.paidMerchants.some((m) => m.toLowerCase() === merchant);
-  if (!knownMerchant && order.totalCents > NEW_MERCHANT_THRESHOLD_CENTS) {
+  if (order.kind !== "gift" && !knownMerchant && order.totalCents > NEW_MERCHANT_THRESHOLD_CENTS) {
     flags.push({ code: "S5_NEW_MERCHANT", message: "You haven't bought from this store before." });
   }
   if (

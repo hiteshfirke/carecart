@@ -21,4 +21,8 @@ describe("paymentResultMessage", () => {
     expect(paymentResultMessage(null, "paid", "Anna")).toMatch(/couldn't check/i);
     expect(paymentResultMessage(null, "unknown", "Anna")).toMatch(/couldn't check/i);
   });
+  it("says a paid gift was sent to the person", () => {
+    const gift = { title: "Gift to Sam", totalWords: "twenty dollars", status: "PAID" as const, kind: "gift" as const, recipient: "Sam" };
+    expect(paymentResultMessage(gift, "paid", "Anna")).toBe("Sent. Sam got twenty dollars.");
+  });
 });
