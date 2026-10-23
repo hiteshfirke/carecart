@@ -91,6 +91,12 @@ describe("runDraftGift", () => {
     expect(d.draftGift).toHaveBeenCalledWith("s1", { recipientName: "Sam", amountCents: 2001, note: null });
   });
 
+  it("lets a large scam-sized amount through to the code that blocks it", async () => {
+    const d = deps();
+    await runDraftGift(d, ctx, { options: null, draft: null }, { recipient_name: "Sam", amount_dollars: 5000 });
+    expect(d.draftGift).toHaveBeenCalledWith("s1", { recipientName: "Sam", amountCents: 500_000, note: null });
+  });
+
   it("says kindly that the person is not on the list, and who was asked to add them", async () => {
     const out: TurnOutput = { options: null, draft: null };
     const asked = await runDraftGift(giftDeps({ kind: "not_trusted", name: "Tom", emailed: true }), ctx, out, input);
@@ -132,10 +138,11 @@ describe("toolSpecs", () => {
   it("draft_gift checks its input before running", async () => {
     const d = deps();
     const gift = toolSpecs(d, ctx, { options: null, draft: null }).find((t) => t.name === "draft_gift")!;
-    for (const bad of [{ recipient_name: "Sam", amount_dollars: 501 }, { recipient_name: "Sam", amount_dollars: 0 }, { recipient_name: "", amount_dollars: 5 }, { recipient_name: "   ", amount_dollars: 5 }, { recipient_name: "Sam", amount_dollars: 5, note: "x".repeat(61) }]) {
+    for (const bad of [{ recipient_name: "Sam", amount_dollars: 1_000_001 }, { recipient_name: "Sam", amount_dollars: 0 }, { recipient_name: "", amount_dollars: 5 }, { recipient_name: "   ", amount_dollars: 5 }, { recipient_name: "Sam", amount_dollars: 5, note: "x".repeat(61) }]) {
       expect(gift.inputSchema.safeParse(bad).success).toBe(false);
     }
     expect(gift.inputSchema.safeParse({ recipient_name: "Sam", amount_dollars: 500 }).success).toBe(true);
+    expect(gift.inputSchema.safeParse({ recipient_name: "Sam", amount_dollars: 5000 }).success).toBe(true);
     expect(d.draftGift).not.toHaveBeenCalled();
   });
 });

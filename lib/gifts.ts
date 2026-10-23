@@ -41,7 +41,7 @@ export function trustedRequestLink(appUrl: string, r: Pick<TrustedRequest, "id" 
 // The AI only names who Rose meant. Who gets paid always comes from the trusted list.
 export async function draftGift(deps: GiftDeps, household: Household, sessionId: string, input: DraftGiftInput): Promise<DraftGiftResult> {
   const { senior } = household;
-  if (!Number.isInteger(input.amountCents) || input.amountCents < 1 || input.amountCents > MAX_GIFT_CENTS) return { kind: "bad_amount" };
+  if (!Number.isInteger(input.amountCents) || input.amountCents < 1) return { kind: "bad_amount" };
 
   const spoken = input.recipientName.trim();
   const matches = matchTrusted(await deps.listTrustedPeople(household.id), spoken);
@@ -62,6 +62,9 @@ export async function draftGift(deps: GiftDeps, household: Household, sessionId:
     }
     return { kind: "blocked", order: blocked };
   }
+
+  // After the scam check on purpose: a "$5,000 bail" request must still be blocked and warn Anna.
+  if (input.amountCents > MAX_GIFT_CENTS) return { kind: "bad_amount" };
 
   if (matches.length > 1) return { kind: "ambiguous", names: matches.map((p) => p.name) };
 

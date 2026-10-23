@@ -126,7 +126,7 @@ export function toolSpecs(deps: AgentDeps, ctx: TurnContext, out: TurnOutput): T
       "Prepare a gift of money to someone on their trusted list. This does NOT send anything; the app reads it back and asks them to confirm.",
       z.object({
         recipient_name: z.string().trim().min(1).max(60).describe("Who they want to send it to, as they said it, e.g. 'Sam' or 'my grandson'"),
-        amount_dollars: z.number().positive().max(500),
+        amount_dollars: z.number().positive().max(1_000_000), // the 500-dollar limit is enforced in draftGift, after the scam check
         note: z.string().max(60).optional().describe("A few words about what it is for, only if they said"),
       }),
       (input) => runDraftGift(deps, ctx, out, input),

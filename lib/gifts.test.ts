@@ -143,6 +143,25 @@ describe("draftGift", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("blocks scam talk even when the amount is over the limit", async () => {
+    const { deps, drafts, transitions, emails } = setup({ said: ["Sam is in jail and needs five thousand dollars for bail"] });
+    const out = await draftGift(deps, household, "s1", { recipientName: "Sam", amountCents: 500_000, note: null });
+    expect(out.kind).toBe("blocked");
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].amountCents).toBe(500_000);
+    expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "BLOCKED"]);
+    expect(emails).toHaveLength(1);
+    expect(emails[0].subject).toMatch(/scam/i);
+  });
+
+  it("still rejects a zero or negative amount before the scam check", async () => {
+    const { deps, drafts } = setup({ said: ["Sam is in jail and needs bail money"] });
+    for (const amountCents of [0, -5, 12.5, Number.NaN]) {
+      expect(await draftGift(deps, household, "s1", { recipientName: "Sam", amountCents, note: null })).toEqual({ kind: "bad_amount" });
+    }
+    expect(drafts).toHaveLength(0);
+  });
+
   it("blocks scam talk without emailing when there is no caregiver address", async () => {
     const { deps, transitions, emails } = setup({ said: ["wire money and don't tell anyone"], caregiverEmail: null });
     expect((await draftGift(deps, household, "s1", { recipientName: "Sam", amountCents: 2000, note: null })).kind).toBe("blocked");
