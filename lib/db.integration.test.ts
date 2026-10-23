@@ -87,6 +87,93 @@ describe.skipIf(!process.env.DATABASE_URL)("db (integration: needs DATABASE_URL)
     expect(byPaypal?.payerRole).toBe("senior");
   });
 
+  it("seeds Sam the grandson as a trusted person", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    expect(await db.listTrustedPeople(h.id)).toMatchObject([
+      { name: "Sam", relationship: "grandson", paypalEmail: process.env.DEMO_FAMILY_EMAIL || "sam@example.com" },
+    ]);
+  });
+
+  it("drafts a gift order with a payee snapshot", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    const session = await db.createSession(h.senior.id);
+    const [sam] = await db.listTrustedPeople(h.id);
+    const payee = { trustedPersonId: sam.id, name: sam.name, relationship: sam.relationship, paypalEmail: sam.paypalEmail };
+    const gift = await db.createDraftGift({ userId: h.senior.id, sessionId: session.id, payee, amountCents: 2000, note: "birthday" });
+
+    expect(gift).toMatchObject({ kind: "gift", totalCents: 2000, quantity: 1, status: "DRAFT", merchant: "Sam", payee });
+    expect(gift.product).toMatchObject({ title: "Gift to Sam (birthday)", productId: `gift:${sam.id}`, priceCents: 2000, category: "gift" });
+    expect((await db.getOrder(gift.id))?.payee).toEqual(payee);
+    expect((await db.createDraftOrder({ userId: h.senior.id, sessionId: session.id, product, quantity: 1 })).kind).toBe("purchase");
+  });
+
+  it("keeps trusted names unique per household, ignoring case", async () => {
+    const db = await import("./db");
+    const a = await db.createHousehold(null);
+    const b = await db.createHousehold(null);
+    // Every household starts with Sam, so a second "sam" is a duplicate.
+    expect(await db.addTrustedPerson(a.id, { name: "sam", relationship: null, paypalEmail: "other@example.com" })).toBeNull();
+    // The name is only taken inside household a: b can have its own Sam once b's seeded one is gone.
+    await db.removeTrustedPerson(b.id, (await db.listTrustedPeople(b.id))[0].id);
+    const added = await db.addTrustedPerson(b.id, { name: "Sam", relationship: null, paypalEmail: "other@example.com" });
+    expect(added).toMatchObject({ householdId: b.id, name: "Sam", paypalEmail: "other@example.com" });
+    expect(await db.listTrustedPeople(a.id)).toMatchObject([{ name: "Sam", relationship: "grandson" }]);
+  });
+
+  it("checks and removes trusted people only inside their own household", async () => {
+    const db = await import("./db");
+    const a = await db.createHousehold(null);
+    const b = await db.createHousehold(null);
+    const [sam] = await db.listTrustedPeople(a.id);
+    expect(await db.isTrusted(a.id, sam.id)).toBe(true);
+    expect(await db.isTrusted(b.id, sam.id)).toBe(false);
+    expect(await db.removeTrustedPerson(b.id, sam.id)).toBe(false);
+    expect(await db.removeTrustedPerson(a.id, sam.id)).toBe(true);
+    expect(await db.isTrusted(a.id, sam.id)).toBe(false);
+    expect(await db.listTrustedPeople(a.id)).toEqual([]);
+  });
+
+  it("reuses an open add-request for 24 hours and lets it be used once", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    const first = await db.openTrustedRequest(h.id, "Ben", "T1");
+    expect(first.created).toBe(true);
+    const second = await db.openTrustedRequest(h.id, "ben", "T2");
+    expect(second).toMatchObject({ created: false, request: { id: first.request.id, token: "T1" } });
+    expect((await db.getTrustedRequest(first.request.id))?.usedAt).toBeNull();
+
+    const person = await db.useTrustedRequest(first.request.id, { relationship: "nephew", paypalEmail: "ben@example.com" });
+    expect(person).toMatchObject({ householdId: h.id, name: "Ben", relationship: "nephew", paypalEmail: "ben@example.com" });
+    expect(await db.useTrustedRequest(first.request.id, { relationship: "nephew", paypalEmail: "ben@example.com" })).toBeNull();
+    expect((await db.getTrustedRequest(first.request.id))?.usedAt).toBeInstanceOf(Date);
+  });
+
+  it("refuses an expired add-request", async () => {
+    const db = await import("./db");
+    const { neon } = await import("@neondatabase/serverless");
+    const h = await db.createHousehold(null);
+    const { request } = await db.openTrustedRequest(h.id, "Ben", "T1");
+    await neon(process.env.DATABASE_URL as string)`update trusted_requests set expires_at = now() - interval '1 minute' where id = ${request.id}`;
+    expect(await db.useTrustedRequest(request.id, { relationship: null, paypalEmail: "ben@example.com" })).toBeNull();
+    expect(await db.listTrustedPeople(h.id)).toHaveLength(1); // only Sam
+  });
+
+  it("only rebinds a PayPal order for the payer who owns the order", async () => {
+    const db = await import("./db");
+    const h = await db.createHousehold(null);
+    const session = await db.createSession(h.senior.id);
+    const draft = await db.createDraftOrder({ userId: h.senior.id, sessionId: session.id, product, quantity: 1 });
+    await db.transitionOrder(draft.id, "CONFIRMED", "test");
+    await db.transitionOrder(draft.id, "AWAITING_CAREGIVER", "test");
+    await db.transitionOrder(draft.id, "AWAITING_PAYMENT", "test", { paypalOrderId: `PP-${draft.id}`, payerRole: "caregiver" });
+
+    expect(await db.setPaypalOrderId(draft.id, `PP2-${draft.id}`, "senior")).toBe(false);
+    expect(await db.setPaypalOrderId(draft.id, `PP2-${draft.id}`, "caregiver")).toBe(true);
+    expect((await db.getOrder(draft.id))?.paypalOrderId).toBe(`PP2-${draft.id}`);
+  });
+
   it("stores the last search options and conversation per session", async () => {
     const db = await import("./db");
     const h = await db.createHousehold(null);

@@ -3,8 +3,8 @@ import { shipOrder, trackingNumberFor, type StoreDeps } from "./store";
 import type { Order, Tracking } from "./db";
 import type { OrderStatus } from "./orders/state";
 
-function setup(status: OrderStatus, opts: { trackingFails?: boolean; userId?: string } = {}) {
-  const order = { id: "o1", userId: opts.userId ?? "rose", status, paypalOrderId: "PP1", captureId: "CAP1" } as Order;
+function setup(status: OrderStatus, opts: { trackingFails?: boolean; userId?: string; kind?: Order["kind"] } = {}) {
+  const order = { id: "o1", userId: opts.userId ?? "rose", status, kind: opts.kind ?? "purchase", paypalOrderId: "PP1", captureId: "CAP1" } as Order;
   const tracked: { pp: string; cap: string; t: Tracking }[] = [];
   const moved: OrderStatus[] = [];
   const deps: StoreDeps = {
@@ -42,6 +42,13 @@ describe("shipOrder", () => {
   it("only ships paid orders from the same household", async () => {
     expect((await shipOrder(setup("AWAITING_PAYMENT").deps, "o1", "rose")).ok).toBe(false);
     expect((await shipOrder(setup("PAID", { userId: "other" }).deps, "o1", "rose")).ok).toBe(false);
+  });
+
+  it("refuses to ship a gift", async () => {
+    const { deps, tracked, moved } = setup("PAID", { kind: "gift" });
+    expect(await shipOrder(deps, "o1", "rose")).toEqual({ ok: false, code: "not_shippable" });
+    expect(tracked).toEqual([]);
+    expect(moved).toEqual([]);
   });
 
   it("does not mark shipped if PayPal rejects the tracking", async () => {

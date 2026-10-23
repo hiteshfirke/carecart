@@ -36,7 +36,7 @@ function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "
     id: "o1", userId: "rose", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
     product: { productId: "p", title: "Monitor", priceCents: 6500, merchant: "walmart.com" },
   } as Order;
-  const calls: { paypal: string[]; to: OrderStatus[]; saved: [string, string][] } = { paypal: [], to: [], saved: [] };
+  const calls: { paypal: string[]; to: OrderStatus[]; saved: [string, string, string][] } = { paypal: [], to: [], saved: [] };
   const deps: CaregiverDeps = {
     getOrder: async (id) => (id === "o1" ? order : null),
     householdForUser: async () => household,
@@ -53,8 +53,8 @@ function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "
       if (opts.paypalFails) throw new Error("down");
       return { paypalOrderId: "PP9", approveUrl: "https://paypal.test/approve/PP9" };
     },
-    setPaypalOrderId: async (id, paypalOrderId) => {
-      calls.saved.push([id, paypalOrderId]);
+    setPaypalOrderId: async (id, paypalOrderId, payerRole) => {
+      calls.saved.push([id, paypalOrderId, payerRole]);
       return !opts.saveFails;
     },
     appUrl: "https://app.test",
@@ -80,7 +80,7 @@ describe("approveRequest", () => {
   it("saves a new PayPal order id when PayPal issues a fresh order on resume", async () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { payerRole: "caregiver", paypalOrderId: "PP-old" });
     expect((await approveRequest(deps, "o1", owner)).ok).toBe(true);
-    expect(calls.saved).toEqual([["o1", "PP9"]]);
+    expect(calls.saved).toEqual([["o1", "PP9", "caregiver"]]);
   });
 
   it("fails instead of sending Anna to a PayPal order the app can't find", async () => {

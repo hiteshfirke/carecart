@@ -18,7 +18,7 @@ export function trackingNumberFor(orderId: string): string {
 export async function shipOrder(deps: StoreDeps, orderId: string, seniorId: string): Promise<{ ok: true; tracking: Tracking } | { ok: false; code: ErrorCode }> {
   const order = await deps.getOrder(orderId);
   if (!order || order.userId !== seniorId) return { ok: false, code: "order_not_found" };
-  if (order.status !== "PAID" || !order.paypalOrderId || !order.captureId) return { ok: false, code: "not_shippable" };
+  if (order.kind !== "purchase" || order.status !== "PAID" || !order.paypalOrderId || !order.captureId) return { ok: false, code: "not_shippable" };
   const tracking: Tracking = { carrier: "USPS", number: trackingNumberFor(order.id) };
   try {
     await deps.addTracking(order.paypalOrderId, order.captureId, tracking);

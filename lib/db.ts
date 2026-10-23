@@ -32,6 +32,19 @@ export type User = {
 };
 export type Household = { id: string; senior: User; caregiver: User };
 export type Tracking = { carrier: string; number: string };
+export type OrderKind = "purchase" | "gift";
+// Who a gift pays, copied onto the order so it stays true if the trusted person is later edited or removed.
+export type Payee = { trustedPersonId: string | null; name: string; relationship: string | null; paypalEmail: string | null };
+export type TrustedPerson = { id: string; householdId: string; name: string; relationship: string | null; paypalEmail: string };
+export type TrustedRequest = {
+  id: string;
+  householdId: string;
+  name: string;
+  token: string;
+  createdAt: Date;
+  expiresAt: Date;
+  usedAt: Date | null;
+};
 export type Order = {
   id: string;
   userId: string;
@@ -40,6 +53,8 @@ export type Order = {
   quantity: number;
   totalCents: number;
   merchant: string;
+  kind: OrderKind;
+  payee: Payee | null;
   status: OrderStatus;
   route: Route | null;
   flags: Flag[];
@@ -95,6 +110,8 @@ function toOrder(r: Row): Order {
     quantity: r.quantity as number,
     totalCents: r.total_cents as number,
     merchant: r.merchant as string,
+    kind: r.kind as OrderKind,
+    payee: (r.payee as Payee | null) ?? null,
     status: r.status as OrderStatus,
     route: (r.route as Route | null) ?? null,
     flags: (r.flags as Flag[] | null) ?? [],
@@ -109,6 +126,28 @@ function toOrder(r: Row): Order {
     remindedAt: r.reminded_at ? date(r.reminded_at) : null,
     createdAt: date(r.created_at),
     updatedAt: date(r.updated_at),
+  };
+}
+
+function toTrustedPerson(r: Row): TrustedPerson {
+  return {
+    id: r.id as string,
+    householdId: r.household_id as string,
+    name: r.name as string,
+    relationship: (r.relationship as string | null) ?? null,
+    paypalEmail: r.paypal_email as string,
+  };
+}
+
+function toTrustedRequest(r: Row): TrustedRequest {
+  return {
+    id: r.id as string,
+    householdId: r.household_id as string,
+    name: r.name as string,
+    token: r.token as string,
+    createdAt: date(r.created_at),
+    expiresAt: date(r.expires_at),
+    usedAt: r.used_at ? date(r.used_at) : null,
   };
 }
 
@@ -128,6 +167,9 @@ export async function createHousehold(caregiverEmail: string | null): Promise<Ho
            values (${seniorId}, ${householdId}, 'senior', 'Rose', ${JSON.stringify(DEMO_ADDRESS)}::jsonb)`;
   await db`insert into users (id, household_id, role, name, email)
            values (${caregiverId}, ${householdId}, 'caregiver', 'Anna', ${caregiverEmail})`;
+  // Sam is the demo's family member, so a gift can be sent without first adding anyone.
+  await db`insert into trusted_people (id, household_id, name, relationship, paypal_email)
+           values (${crypto.randomUUID()}, ${householdId}, 'Sam', 'grandson', ${process.env.DEMO_FAMILY_EMAIL || "sam@example.com"})`;
   // Three past paid orders give the "unusual amount" and "new store" rules a baseline.
   const past: Array<[string, number, string, number]> = [
     ["Lipton Green Tea, 100 bags", 800, "walmart.com", 6],
@@ -226,6 +268,28 @@ export async function createDraftOrder(input: { userId: string; sessionId: strin
   return toOrder(rows[0]);
 }
 
+export async function createDraftGift(input: { userId: string; sessionId: string; payee: Payee; amountCents: number; note: string | null }): Promise<Order> {
+  const { payee, amountCents } = input;
+  const note = input.note?.trim().slice(0, 60);
+  const product: ProductOption = {
+    productId: `gift:${payee.trustedPersonId ?? "unknown"}`,
+    title: note ? `Gift to ${payee.name} (${note})` : `Gift to ${payee.name}`,
+    priceCents: amountCents,
+    merchant: payee.name,
+    url: "",
+    imageUrl: null,
+    imageAlt: `Gift to ${payee.name}`,
+    rating: null,
+    category: "gift",
+  };
+  const rows = (await sql()`
+    insert into orders (id, user_id, session_id, product, quantity, total_cents, merchant, status, kind, payee)
+    values (${crypto.randomUUID()}, ${input.userId}, ${input.sessionId}, ${JSON.stringify(product)}::jsonb,
+            1, ${amountCents}, ${payee.name}, 'DRAFT', 'gift', ${JSON.stringify(payee)}::jsonb)
+    returning *`) as Row[];
+  return toOrder(rows[0]);
+}
+
 export async function getOrder(id: string): Promise<Order | null> {
   const rows = (await sql()`select * from orders where id = ${id}`) as Row[];
   return rows[0] ? toOrder(rows[0]) : null;
@@ -283,9 +347,9 @@ export async function transitionOrder(id: string, to: OrderStatus, actor: string
   return { result: "applied", order: toOrder(rows[0]) };
 }
 
-export async function setPaypalOrderId(id: string, paypalOrderId: string): Promise<boolean> {
+export async function setPaypalOrderId(id: string, paypalOrderId: string, payerRole: Role): Promise<boolean> {
   const rows = (await sql()`update orders set paypal_order_id = ${paypalOrderId}, updated_at = now()
-              where id = ${id} and status = 'AWAITING_PAYMENT' and payer_role = 'caregiver'
+              where id = ${id} and status = 'AWAITING_PAYMENT' and payer_role = ${payerRole}
               returning id`) as Row[];
   if (rows.length === 0) return false;
   await sql()`insert into order_events (order_id, from_status, to_status, actor)
@@ -337,4 +401,67 @@ export async function ordersNeedingReminder(hours: number): Promise<Order[]> {
 
 export async function markReminded(id: string): Promise<void> {
   await sql()`update orders set reminded_at = now() where id = ${id}`;
+}
+
+// ---------- trusted people ----------
+
+export async function listTrustedPeople(householdId: string): Promise<TrustedPerson[]> {
+  const rows = (await sql()`select * from trusted_people where household_id = ${householdId} order by name`) as Row[];
+  return rows.map(toTrustedPerson);
+}
+
+// null = the name is already used in this household (compared ignoring case).
+export async function addTrustedPerson(
+  householdId: string,
+  p: { name: string; relationship: string | null; paypalEmail: string },
+): Promise<TrustedPerson | null> {
+  const rows = (await sql()`
+    insert into trusted_people (id, household_id, name, relationship, paypal_email)
+    values (${crypto.randomUUID()}, ${householdId}, ${p.name}, ${p.relationship}, ${p.paypalEmail})
+    on conflict do nothing
+    returning *`) as Row[];
+  return rows[0] ? toTrustedPerson(rows[0]) : null;
+}
+
+export async function removeTrustedPerson(householdId: string, id: string): Promise<boolean> {
+  const rows = (await sql()`delete from trusted_people where household_id = ${householdId} and id = ${id} returning id`) as Row[];
+  return rows.length > 0;
+}
+
+export async function isTrusted(householdId: string, trustedPersonId: string): Promise<boolean> {
+  const rows = (await sql()`select 1 from trusted_people where household_id = ${householdId} and id = ${trustedPersonId}`) as Row[];
+  return rows.length > 0;
+}
+
+// ---------- add-requests: a link a family member opens to add their own PayPal email ----------
+
+// Re-asking for the same name within 24 hours reuses the open link instead of making a new one.
+export async function openTrustedRequest(householdId: string, name: string, token: string): Promise<{ request: TrustedRequest; created: boolean }> {
+  const open = (await sql()`
+    select * from trusted_requests
+    where household_id = ${householdId} and lower(name) = lower(${name})
+      and used_at is null and expires_at > now() and created_at > now() - interval '24 hours'
+    order by created_at desc limit 1`) as Row[];
+  if (open[0]) return { request: toTrustedRequest(open[0]), created: false };
+  const rows = (await sql()`
+    insert into trusted_requests (id, household_id, name, token, expires_at)
+    values (${crypto.randomUUID()}, ${householdId}, ${name}, ${token}, now() + interval '7 days')
+    returning *`) as Row[];
+  return { request: toTrustedRequest(rows[0]), created: true };
+}
+
+export async function getTrustedRequest(id: string): Promise<TrustedRequest | null> {
+  const rows = (await sql()`select * from trusted_requests where id = ${id}`) as Row[];
+  return rows[0] ? toTrustedRequest(rows[0]) : null;
+}
+
+// null = already used, expired, or the name was taken meanwhile. The single update lets only one caller win.
+export async function useTrustedRequest(id: string, p: { relationship: string | null; paypalEmail: string }): Promise<TrustedPerson | null> {
+  const rows = (await sql()`
+    update trusted_requests set used_at = now()
+    where id = ${id} and used_at is null and expires_at > now()
+    returning *`) as Row[];
+  if (!rows[0]) return null;
+  const request = toTrustedRequest(rows[0]);
+  return addTrustedPerson(request.householdId, { name: request.name, ...p });
 }

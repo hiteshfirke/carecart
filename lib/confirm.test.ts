@@ -23,7 +23,7 @@ function setup(over: {
   const order: Order = {
     id: "o1", userId: "rose", sessionId: "s1",
     product: { productId: "p1", title: "Green Tea", priceCents: 1000, merchant: "walmart.com", url: "u", imageUrl: null, imageAlt: "tea", rating: null, category: null },
-    quantity: 1, totalCents: 1000, merchant: "walmart.com", status: "DRAFT", route: null, flags: [], aiRisk: null, summary: null,
+    quantity: 1, totalCents: 1000, merchant: "walmart.com", kind: "purchase", payee: null, status: "DRAFT", route: null, flags: [], aiRisk: null, summary: null,
     declineReason: null, payerRole: null, paypalOrderId: null, captureId: null, tracking: null, caregiverToken: null, remindedAt: null,
     createdAt: new Date(), updatedAt: new Date(),
     ...over.order,

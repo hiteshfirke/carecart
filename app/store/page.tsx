@@ -10,7 +10,8 @@ export default async function StorePage({ searchParams }: { searchParams: Promis
   const household = await currentHousehold();
   if (!household) redirect("/");
   const sp = await searchParams;
-  const paid = await listOrdersByStatus(household.senior.id, ["PAID"]);
+  // Gifts are money sent to family, not goods, so there is nothing to ship.
+  const paid = (await listOrdersByStatus(household.senior.id, ["PAID"])).filter((o) => o.kind === "purchase");
   // Name the order that just shipped, so a second click on the next row's button is not mistaken for a retry.
   const justShipped = z.string().uuid().safeParse(sp.shipped).success ? await getOrder(sp.shipped as string) : null;
   const shipped = justShipped?.userId === household.senior.id && justShipped.status === "SHIPPED" ? justShipped : null;

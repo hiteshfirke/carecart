@@ -78,3 +78,28 @@ create table if not exists daily_usage (
 
 -- Groq voice calls (speaking pieces and transcriptions) per day, capped by DAILY_SPEECH_CAP.
 alter table daily_usage add column if not exists speech_calls integer not null default 0;
+
+-- Gifts to family are orders with kind = 'gift'; payee snapshots who gets the money.
+alter table orders add column if not exists kind text not null default 'purchase' check (kind in ('purchase', 'gift'));
+alter table orders add column if not exists payee jsonb;
+
+create table if not exists trusted_people (
+  id text primary key,
+  household_id text not null references households(id) on delete cascade,
+  name text not null,
+  relationship text,
+  paypal_email text not null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists trusted_people_name_idx on trusted_people (household_id, lower(name));
+
+create table if not exists trusted_requests (
+  id text primary key,
+  household_id text not null references households(id) on delete cascade,
+  name text not null,
+  token text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  used_at timestamptz
+);

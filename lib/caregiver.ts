@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type TransitionOutcome } from "@/lib/db";
+import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type Role, type TransitionOutcome } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
 import type { CreatePayPalOrderInput } from "@/lib/paypal";
 import { reminderEmail, type SendEmail } from "@/lib/email";
@@ -10,7 +10,7 @@ export type CaregiverDeps = {
   householdForUser(userId: string): Promise<Household | null>;
   transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
-  setPaypalOrderId(id: string, paypalOrderId: string): Promise<boolean>;
+  setPaypalOrderId(id: string, paypalOrderId: string, payerRole: Role): Promise<boolean>;
   appUrl: string;
 };
 
@@ -68,7 +68,7 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
     // PayPal forgets idempotency keys after a while and may issue a new order; the return page must find it.
     // The superseded PayPal order was never captured by us, so no money is attached to it.
     console.info(`order ${order.id}: PayPal order ${order.paypalOrderId} superseded by ${paypal.paypalOrderId}`);
-    if (!(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId))) {
+    if (!(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId, "caregiver"))) {
       return { ok: false, code: "request_changed" };
     }
   }
