@@ -123,9 +123,11 @@ test("ambiguous speech at the confirm step does not pay", async ({ page }) => {
   const box = page.getByLabel("Or type what you need");
   await box.fill("I need green tea");
   await box.press("Enter");
+  // The options take focus when they arrive; wait for them so the next Enter isn't pressed on the heading.
+  await expect(page.getByRole("heading", { name: /pick one/i })).toBeFocused();
   await box.fill("the first one");
   await box.press("Enter");
-  await expect(page.getByRole("heading", { name: /check your order/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeFocused();
   await box.fill("yes but wait");
   await box.press("Enter");
   await expect(page.getByText("yes but wait")).toBeVisible();
@@ -140,6 +142,7 @@ test("screen-reader mode shows a focused Continue to PayPal link instead of navi
   const box = page.getByLabel("Or type what you need");
   await box.fill("I need green tea");
   await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /pick one/i })).toBeFocused();
   await box.fill("option 1");
   await box.press("Enter");
   await page.getByRole("button", { name: /confirm/i }).click();
@@ -314,9 +317,10 @@ test("Rose hears Anna's answer once, even if she changes the voice speed while w
   const box = page.getByLabel("Or type what you need");
   await box.fill("I need green tea");
   await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /pick one/i })).toBeFocused();
   await box.fill("option 1");
   await box.press("Enter");
-  await expect(page.getByRole("heading", { name: /check your order/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeFocused();
   await box.fill("confirm");
   await box.press("Enter");
   const conversation = page.getByRole("region", { name: "Conversation" });

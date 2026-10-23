@@ -130,7 +130,7 @@ body {
 .site-nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 56px;
+  min-height: 64px;
   padding: 0 0.7rem;
   margin-bottom: -3px;
   border-bottom: 6px solid transparent;
