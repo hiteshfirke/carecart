@@ -4,6 +4,7 @@ const MESSAGES = {
   not_found: "This request was not found.",
   not_waiting: "This request has already been handled.",
   paypal_down: "PayPal isn't answering right now. Nothing was charged. Please try again.",
+  not_trusted: "This person is no longer on the list of people Rose can send money to.",
   request_changed: "This request just changed. Please reload the page and try again.",
   bad_limits: "Please enter whole dollar amounts.",
   order_not_found: "Order not found.",

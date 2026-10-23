@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { approveRequest, canActOnRequest, declineRequest, remindCaregivers, type CaregiverDeps } from "./caregiver";
-import { DEMO_ADDRESS, type Household, type Order } from "./db";
+import { DEMO_ADDRESS, type Household, type Order, type OrderPatch } from "./db";
 import { checkTransition, type OrderStatus } from "./orders/state";
 
 const household: Household = {
@@ -31,20 +31,21 @@ describe("canActOnRequest", () => {
   });
 });
 
-function setup(status: OrderStatus, opts: { paypalFails?: boolean; payerRole?: "caregiver" | null; paypalOrderId?: string | null; saveFails?: boolean } = {}) {
+function setup(status: OrderStatus, opts: { paypalFails?: boolean; paypalOrderId?: string | null; saveFails?: boolean; kind?: "purchase" | "gift"; payerRole?: "senior" | "caregiver" | null } = {}) {
   const order = {
-    id: "o1", userId: "rose", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
+    id: "o1", userId: "rose", kind: opts.kind ?? "purchase", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
     product: { productId: "p", title: "Monitor", priceCents: 6500, merchant: "walmart.com" },
   } as Order;
-  const calls: { paypal: string[]; to: OrderStatus[]; saved: [string, string, string][] } = { paypal: [], to: [], saved: [] };
+  const calls: { paypal: string[]; to: OrderStatus[]; patches: (OrderPatch | undefined)[]; saved: [string, string, string][] } = { paypal: [], to: [], patches: [], saved: [] };
   const deps: CaregiverDeps = {
     getOrder: async (id) => (id === "o1" ? order : null),
     householdForUser: async () => household,
-    transitionOrder: async (_id, to) => {
+    transitionOrder: async (_id, to, _actor, patch) => {
       const kind = checkTransition(order.status, to).kind;
       if (kind === "apply") {
         order.status = to;
         calls.to.push(to);
+        calls.patches.push(patch);
       }
       return { result: kind === "apply" ? "applied" : kind === "noop" ? "noop" : "rejected", order };
     },
@@ -112,6 +113,42 @@ describe("approveRequest", () => {
     const { deps, calls } = setup("AWAITING_CAREGIVER", { paypalFails: true });
     expect((await approveRequest(deps, "o1", owner)).ok).toBe(false);
     expect(calls.to).toEqual([]);
+  });
+
+  it("approving a gift hands it back to Rose", async () => {
+    const { deps, calls } = setup("AWAITING_CAREGIVER", { kind: "gift" });
+    expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: true, approveUrl: null });
+    expect(calls.to).toEqual(["AWAITING_PAYMENT"]);
+    expect(calls.patches).toEqual([{ payerRole: "senior" }]);
+    expect(calls.paypal).toEqual([]);
+    expect(calls.saved).toEqual([]);
+  });
+
+  it("approving a gift twice hands it over only once", async () => {
+    const { deps, calls } = setup("AWAITING_CAREGIVER", { kind: "gift" });
+    await approveRequest(deps, "o1", owner);
+    expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: false, code: "not_waiting" });
+    expect(calls.to).toEqual(["AWAITING_PAYMENT"]);
+    expect(calls.paypal).toEqual([]);
+  });
+
+  it("Anna can't resume a gift that's waiting for Rose", async () => {
+    const { deps, calls } = setup("AWAITING_PAYMENT", { kind: "gift", payerRole: "senior" });
+    expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: false, code: "not_waiting" });
+    expect(calls.paypal).toEqual([]);
+    expect(calls.to).toEqual([]);
+  });
+
+  it("never lets Anna pay a gift, even if one were marked as hers", async () => {
+    const { deps, calls } = setup("AWAITING_PAYMENT", { kind: "gift", payerRole: "caregiver" });
+    expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: false, code: "not_waiting" });
+    expect(calls.paypal).toEqual([]);
+  });
+
+  it("refuses a gift that was declined or blocked", async () => {
+    for (const s of ["DECLINED", "BLOCKED"] as const) {
+      expect((await approveRequest(setup(s, { kind: "gift" }).deps, "o1", owner)).ok).toBe(false);
+    }
   });
 });
 

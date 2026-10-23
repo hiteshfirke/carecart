@@ -19,6 +19,8 @@ function setup(over: {
   paypalFails?: boolean;
   emailOk?: boolean;
   confirmRaced?: boolean;
+  trusted?: boolean;
+  said?: string[];
 } = {}) {
   const order: Order = {
     id: "o1", userId: "rose", sessionId: "s1",
@@ -31,10 +33,15 @@ function setup(over: {
   const transitions: { to: string; patch?: OrderPatch }[] = [];
   const emails: EmailMessage[] = [];
   const paypalCalls: CreatePayPalOrderInput[] = [];
+  const trustedCalls: [string, string][] = [];
   const deps: ConfirmDeps = {
     getOrder: async (id) => (id === order.id ? order : null),
     ruleHistory: async () => ({ paidTodayCents: 0, recentPaidTotalsCents: [800, 1200, 900], paidMerchants: ["walmart.com"], minutesSinceSameProduct: null, ...over.history }),
-    userUtterances: async () => ["I need green tea"],
+    userUtterances: async () => over.said ?? ["I need green tea"],
+    isTrusted: async (householdId, trustedPersonId) => {
+      trustedCalls.push([householdId, trustedPersonId]);
+      return over.trusted ?? true;
+    },
     assessRisk: async () => (over.risk === undefined ? { aiRisk: { risk: "low", reasons: [] }, caregiverSummary: "Rose wants green tea." } : over.risk),
     transitionOrder: async (_id, to, _actor, patch) => {
       transitions.push({ to, patch });
@@ -54,14 +61,15 @@ function setup(over: {
     caregiverEmail: "anna@example.com",
     newToken: () => "TOKEN123",
   };
-  return { deps, transitions, emails, paypalCalls };
+  return { deps, transitions, emails, paypalCalls, trustedCalls };
 }
 
 describe("confirmOrder", () => {
   it("self-pay: creates the PayPal order first, then moves DRAFT → CONFIRMED → AWAITING_PAYMENT", async () => {
-    const { deps, transitions, paypalCalls, emails } = setup();
+    const { deps, transitions, paypalCalls, emails, trustedCalls } = setup();
     const out = await confirmOrder(deps, household, "o1", false);
     expect(out).toEqual({ outcome: "pay", approveUrl: "https://paypal.test/approve" });
+    expect(trustedCalls).toHaveLength(0);
     expect(paypalCalls[0]).toMatchObject({ orderId: "o1", unitCents: 1000, quantity: 1, requestId: "create-o1-senior", returnUrl: "https://app.test/api/paypal/return" });
     expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "AWAITING_PAYMENT"]);
     expect(transitions[1].patch).toEqual({ paypalOrderId: "PP1", payerRole: "senior" });
@@ -132,5 +140,77 @@ describe("confirmOrder", () => {
   it("rejects orders from another household or already confirmed", async () => {
     expect((await confirmOrder(setup({ order: { userId: "someone-else" } }).deps, household, "o1", false)).outcome).toBe("error");
     expect((await confirmOrder(setup({ order: { status: "AWAITING_PAYMENT" } }).deps, household, "o1", false)).outcome).toBe("error");
+  });
+});
+
+const samPayee = { trustedPersonId: "t1", name: "Sam", relationship: "grandson", paypalEmail: "sam@example.com" };
+const gift = (cents: number, payee: Order["payee"] = samPayee): Partial<Order> => ({
+  kind: "gift",
+  payee,
+  totalCents: cents,
+  merchant: "Sam",
+  product: { productId: "gift:t1", title: "Gift to Sam", priceCents: cents, merchant: "Sam", url: "", imageUrl: null, imageAlt: "Gift to Sam", rating: null, category: "gift" },
+});
+
+describe("confirmOrder: gifts", () => {
+  it("pays a trusted person directly", async () => {
+    const { deps, transitions, paypalCalls, trustedCalls, emails } = setup({ order: gift(2000) });
+    const out = await confirmOrder(deps, household, "o1", false);
+    expect(out).toEqual({ outcome: "pay", approveUrl: "https://paypal.test/approve" });
+    expect(paypalCalls).toHaveLength(1);
+    expect(paypalCalls[0]).toMatchObject({ kind: "gift", payeeEmail: "sam@example.com", amountCents: 2000, senderName: "Rose", requestId: "create-o1-senior", returnUrl: "https://app.test/api/paypal/return" });
+    expect(trustedCalls).toEqual([["h1", "t1"]]);
+    expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "AWAITING_PAYMENT"]);
+    expect(transitions[1].patch).toEqual({ paypalOrderId: "PP1", payerRole: "senior" });
+    expect(emails).toHaveLength(0);
+  });
+
+  it("refuses a gift when the person was removed", async () => {
+    const { deps, transitions, paypalCalls, emails } = setup({ order: gift(2000), trusted: false });
+    const out = await confirmOrder(deps, household, "o1", false);
+    expect(out.outcome).toBe("error");
+    if (out.outcome === "error") expect(out.message).toContain("no longer on your list");
+    expect(paypalCalls).toHaveLength(0);
+    expect(transitions).toHaveLength(0);
+    expect(emails).toHaveLength(0);
+  });
+
+  it("refuses a gift with no trusted person or PayPal email, without asking PayPal", async () => {
+    for (const payee of [null, { ...samPayee, trustedPersonId: null }, { ...samPayee, paypalEmail: null }]) {
+      const { deps, transitions, paypalCalls } = setup({ order: gift(2000, payee) });
+      expect((await confirmOrder(deps, household, "o1", false)).outcome).toBe("error");
+      expect(paypalCalls).toHaveLength(0);
+      expect(transitions).toHaveLength(0);
+    }
+  });
+
+  it("sends an over-limit gift to Anna, without a PayPal order", async () => {
+    const { deps, transitions, emails, paypalCalls } = setup({ order: gift(3000) });
+    const out = await confirmOrder(deps, household, "o1", false);
+    expect(out).toEqual({ outcome: "caregiver", caregiverName: "Anna", emailed: true });
+    expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "AWAITING_CAREGIVER"]);
+    expect(emails[0].subject.startsWith("Rose needs your OK to send")).toBe(true);
+    expect(emails[0].html).toContain("https://app.test/caregiver/requests/o1?t=TOKEN123");
+    expect(paypalCalls).toHaveLength(0);
+  });
+
+  it("blocks a gift when scam words were said after the draft", async () => {
+    const { deps, transitions, emails, paypalCalls } = setup({ order: gift(2000), said: ["send Sam some money", "my lawyer says it is urgent"] });
+    const out = await confirmOrder(deps, household, "o1", false);
+    expect(out.outcome).toBe("blocked");
+    expect(transitions.map((t) => t.to)).toEqual(["CONFIRMED", "BLOCKED"]);
+    expect(emails[0].subject).toMatch(/scam/i);
+    expect(paypalCalls).toHaveLength(0);
+  });
+
+  it("tells the AI check who is being paid", async () => {
+    const seen: string[] = [];
+    const { deps } = setup({ order: gift(2000) });
+    deps.assessRisk = async (input) => {
+      seen.push(input.order.merchant);
+      return null;
+    };
+    await confirmOrder(deps, household, "o1", false);
+    expect(seen).toEqual(["Sam (grandson)"]);
   });
 });

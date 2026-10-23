@@ -21,6 +21,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       getOrder: db.getOrder,
       ruleHistory: db.ruleHistory,
       userUtterances: db.userUtterances,
+      isTrusted: db.isTrusted,
       assessRisk: (input) => assessRisk(input),
       transitionOrder: db.transitionOrder,
       createPayPalOrder: (input) => createPayPalOrder(input),

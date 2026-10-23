@@ -13,13 +13,14 @@ const BANNERS: Record<string, string> = {
   cancelled: "Payment cancelled. Nothing was charged.",
   failed: "The payment didn't go through. Nothing was charged.",
 };
+const GIFT_APPROVED = "Approved. Rose will hear the news and send it herself.";
 
 export default async function RequestPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ payment?: string; error?: string; t?: string }>;
+  searchParams: Promise<{ payment?: string; approved?: string; error?: string; t?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -33,7 +34,7 @@ export default async function RequestPage({
   const view = toOrderView(order, caregiver.name);
   const said = order.sessionId ? (await userUtterances(order.sessionId)).slice(-5) : [];
   const canApprove = order.status === "AWAITING_CAREGIVER" || (order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver");
-  const banner = sp.payment ? BANNERS[sp.payment] : undefined;
+  const banner = sp.payment ? BANNERS[sp.payment] : sp.approved === "1" && order.kind === "gift" ? GIFT_APPROVED : undefined;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 p-4">
@@ -91,7 +92,7 @@ export default async function RequestPage({
         <form action={`/api/caregiver/requests/${order.id}/approve`} method="post">
           {sp.t ? <input type="hidden" name="t" value={sp.t} /> : null}
           <button type="submit" className="btn btn-primary w-full">
-            Approve and pay with PayPal
+            {order.kind === "gift" ? "Approve. Rose will send it herself" : "Approve and pay with PayPal"}
           </button>
         </form>
       ) : null}

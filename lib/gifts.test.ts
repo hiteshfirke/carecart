@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { draftGift, matchTrusted, trustedRequestLink, type GiftDeps } from "./gifts";
+import { draftGift, matchTrusted, payGift, trustedRequestLink, type GiftDeps, type PayGiftDeps } from "./gifts";
 import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type Payee, type TrustedPerson } from "./db";
 import type { EmailMessage } from "./email";
+import type { CreatePayPalOrderInput } from "./paypal";
 import { GIFT_SCAM_MESSAGE } from "./safety/rules";
 
 const household: Household = {
@@ -206,5 +207,109 @@ describe("draftGift", () => {
     expect(transitions).toHaveLength(0);
     expect((await draftGift(deps, household, "s1", { recipientName: "Sam", amountCents: 50_000, note: null })).kind).toBe("draft");
     expect((await draftGift(deps, household, "s1", { recipientName: "Sam", amountCents: 1, note: null })).kind).toBe("draft");
+  });
+});
+
+describe("payGift", () => {
+  function paySetup(over: { order?: Partial<Order> | null; trusted?: boolean; paypalFails?: boolean; saveFails?: boolean } = {}) {
+    const order = {
+      id: "o1", userId: "rose", kind: "gift", status: "AWAITING_PAYMENT", payerRole: "senior", paypalOrderId: null, totalCents: 3000, merchant: "Sam",
+      payee: { trustedPersonId: "t1", name: "Sam", relationship: "grandson", paypalEmail: "sam@example.com" },
+      product: { productId: "gift:t1", title: "Gift to Sam", priceCents: 3000, merchant: "Sam" },
+      ...over.order,
+    } as Order;
+    const calls: { paypal: CreatePayPalOrderInput[]; trusted: [string, string][]; saved: [string, string, string][] } = { paypal: [], trusted: [], saved: [] };
+    const deps: PayGiftDeps = {
+      getOrder: async (id) => (over.order === null || id !== "o1" ? null : order),
+      isTrusted: async (householdId, trustedPersonId) => {
+        calls.trusted.push([householdId, trustedPersonId]);
+        return over.trusted ?? true;
+      },
+      createPayPalOrder: async (input) => {
+        calls.paypal.push(input);
+        if (over.paypalFails) throw new Error("down");
+        return { paypalOrderId: "PP1", approveUrl: "https://paypal.test/approve/PP1" };
+      },
+      setPaypalOrderId: async (id, paypalOrderId, payerRole) => {
+        calls.saved.push([id, paypalOrderId, payerRole]);
+        return !over.saveFails;
+      },
+      appUrl: "https://app.test",
+    };
+    return { deps, calls };
+  }
+
+  it("creates the PayPal order for an approved gift", async () => {
+    const { deps, calls } = paySetup();
+    expect(await payGift(deps, household, "o1")).toEqual({ ok: true, approveUrl: "https://paypal.test/approve/PP1" });
+    expect(calls.paypal).toEqual([
+      {
+        kind: "gift",
+        orderId: "o1",
+        title: "Gift to Sam",
+        amountCents: 3000,
+        payeeEmail: "sam@example.com",
+        senderName: "Rose",
+        returnUrl: "https://app.test/api/paypal/return",
+        cancelUrl: "https://app.test/api/paypal/cancel",
+        requestId: "create-o1-senior-gift",
+      },
+    ]);
+    expect(calls.trusted).toEqual([["h1", "t1"]]);
+    expect(calls.saved).toEqual([["o1", "PP1", "senior"]]);
+  });
+
+  it("refuses a gift when the person was removed", async () => {
+    const { deps, calls } = paySetup({ trusted: false });
+    expect(await payGift(deps, household, "o1")).toEqual({ ok: false, code: "not_trusted" });
+    expect(calls.paypal).toHaveLength(0);
+    expect(calls.saved).toHaveLength(0);
+  });
+
+  it("refuses other households' orders, purchases, and gifts not waiting for Rose", async () => {
+    const other = paySetup({ order: { userId: "someone-else" } });
+    expect(await payGift(other.deps, household, "o1")).toEqual({ ok: false, code: "not_found" });
+    expect(await payGift(paySetup({ order: null }).deps, household, "o1")).toEqual({ ok: false, code: "not_found" });
+    const purchase = paySetup({ order: { kind: "purchase", payee: null, payerRole: "senior" } });
+    expect(await payGift(purchase.deps, household, "o1")).toEqual({ ok: false, code: "not_found" });
+    for (const order of [{ status: "AWAITING_CAREGIVER" }, { status: "PAID" }, { status: "DECLINED" }, { payerRole: "caregiver" }] as Partial<Order>[]) {
+      const waiting = paySetup({ order });
+      expect(await payGift(waiting.deps, household, "o1")).toEqual({ ok: false, code: "not_waiting" });
+      expect(waiting.calls.paypal).toHaveLength(0);
+    }
+    for (const s of [other, purchase]) expect(s.calls.paypal).toHaveLength(0);
+  });
+
+  it("never pays a gift with no trusted person or PayPal email", async () => {
+    const samPayee = { trustedPersonId: "t1", name: "Sam", relationship: "grandson", paypalEmail: "sam@example.com" };
+    for (const payee of [null, { ...samPayee, trustedPersonId: null }, { ...samPayee, paypalEmail: null }]) {
+      const { deps, calls } = paySetup({ order: { payee } });
+      expect(await payGift(deps, household, "o1")).toEqual({ ok: false, code: "not_found" });
+      expect(calls.paypal).toHaveLength(0);
+    }
+  });
+
+  it("asking twice reuses the same PayPal request id", async () => {
+    const { deps, calls } = paySetup();
+    await payGift(deps, household, "o1");
+    await payGift(deps, household, "o1");
+    expect(calls.paypal.map((p) => p.requestId)).toEqual(["create-o1-senior-gift", "create-o1-senior-gift"]);
+  });
+
+  it("does not rewrite the PayPal id when PayPal returns the order it already has", async () => {
+    const { deps, calls } = paySetup({ order: { paypalOrderId: "PP1" } });
+    expect((await payGift(deps, household, "o1")).ok).toBe(true);
+    expect(calls.saved).toEqual([]);
+  });
+
+  it("fails instead of sending Rose to a PayPal order the app can't find", async () => {
+    const { deps } = paySetup({ saveFails: true });
+    expect(await payGift(deps, household, "o1")).toEqual({ ok: false, code: "request_changed" });
+  });
+
+  it("leaves the gift waiting when PayPal is down", async () => {
+    const { deps, calls } = paySetup({ paypalFails: true });
+    expect(await payGift(deps, household, "o1")).toEqual({ ok: false, code: "paypal_down" });
+    expect(calls.saved).toEqual([]);
   });
 });

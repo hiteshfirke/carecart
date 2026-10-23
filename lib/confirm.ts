@@ -5,11 +5,13 @@ import type { CreatePayPalOrderInput } from "@/lib/paypal";
 import type { RiskAssessment, RiskInput } from "@/lib/risk";
 import { requestEmail, scamAlertEmail, type SendEmail } from "@/lib/email";
 import { caregiverLink } from "@/lib/caregiver";
+import { giftPayPalInput, payablePayee } from "@/lib/gifts";
 
 export type ConfirmDeps = {
   getOrder(id: string): Promise<Order | null>;
   ruleHistory(userId: string, productId: string, excludingOrderId: string): Promise<RuleHistory>;
   userUtterances(sessionId: string): Promise<string[]>;
+  isTrusted(householdId: string, trustedPersonId: string): Promise<boolean>;
   assessRisk(input: RiskInput): Promise<RiskAssessment | null>;
   transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
@@ -39,13 +41,23 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
   if (!order || order.userId !== senior.id) return { outcome: "error", message: "I couldn't find that order." };
   if (order.status !== "DRAFT") return { outcome: "error", message: "That order was already confirmed." };
 
+  // Money only goes to someone still on the trusted list. Anna may have removed them since the draft.
+  const payee = payablePayee(order); // null for purchases
+  if (order.kind === "gift") {
+    if (!payee) return { outcome: "error", message: "I couldn't find that order." };
+    if (!(await deps.isTrusted(household.id, payee.trustedPersonId))) {
+      return { outcome: "error", message: `${payee.name} is no longer on your list of people you can send money to.` };
+    }
+  }
+  const merchant = payee ? `${payee.name}${payee.relationship ? ` (${payee.relationship})` : ""}` : order.merchant;
+
   const transcript = order.sessionId ? await deps.userUtterances(order.sessionId) : [];
   const [history, risk] = await Promise.all([
     deps.ruleHistory(senior.id, order.product.productId, order.id),
     deps.assessRisk({
       seniorName: senior.name,
       caregiverName: caregiver.name,
-      order: { title: order.product.title, quantity: order.quantity, totalCents: order.totalCents, merchant: order.merchant },
+      order: { title: order.product.title, quantity: order.quantity, totalCents: order.totalCents, merchant },
       transcript,
     }),
   ]);
@@ -68,16 +80,21 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
   if (result.route === "self_pay") {
     let paypal: { paypalOrderId: string; approveUrl: string };
     try {
-      paypal = await deps.createPayPalOrder({
-        orderId: order.id,
-        title: order.product.title,
-        unitCents: order.product.priceCents,
-        quantity: order.quantity,
-        shipTo: senior.address ?? DEMO_ADDRESS,
-        returnUrl: `${deps.appUrl}/api/paypal/return`,
-        cancelUrl: `${deps.appUrl}/api/paypal/cancel`,
-        requestId: `create-${order.id}-senior`,
-      });
+      const requestId = `create-${order.id}-senior`;
+      paypal = await deps.createPayPalOrder(
+        payee
+          ? giftPayPalInput(order, payee, senior.name, deps.appUrl, requestId)
+          : {
+              orderId: order.id,
+              title: order.product.title,
+              unitCents: order.product.priceCents,
+              quantity: order.quantity,
+              shipTo: senior.address ?? DEMO_ADDRESS,
+              returnUrl: `${deps.appUrl}/api/paypal/return`,
+              cancelUrl: `${deps.appUrl}/api/paypal/cancel`,
+              requestId,
+            },
+      );
     } catch (err) {
       console.error("PayPal order creation failed", err);
       return { outcome: "error", message: "PayPal isn't answering right now, so nothing was charged. Please try again in a minute." };

@@ -53,6 +53,7 @@ async function main() {
       getOrder: db.getOrder,
       ruleHistory: db.ruleHistory,
       userUtterances: db.userUtterances,
+      isTrusted: db.isTrusted,
       // Without an AI key the risk check would only log an error and return null, which is what the app does too.
       assessRisk: aiConfigured() ? (input) => assessRisk(input) : async () => null,
       transitionOrder: db.transitionOrder,

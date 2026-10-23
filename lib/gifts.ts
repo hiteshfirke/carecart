@@ -1,5 +1,7 @@
-import type { Household, Order, OrderPatch, Payee, TransitionOutcome, TrustedPerson, TrustedRequest } from "@/lib/db";
+import type { Household, Order, OrderPatch, Payee, Role, TransitionOutcome, TrustedPerson, TrustedRequest } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
+import type { CreateGiftInput, CreatePayPalOrderInput } from "@/lib/paypal";
+import type { ErrorCode } from "@/lib/errors";
 import { GIFT_SCAM_MESSAGE, scamPhraseIn, type Flag } from "@/lib/safety/rules";
 import { addPersonRequestEmail, scamAlertEmail, type SendEmail } from "@/lib/email";
 import { caregiverLink } from "@/lib/caregiver";
@@ -91,4 +93,59 @@ export async function draftGift(deps: GiftDeps, household: Household, sessionId:
 
   const order = await deps.createDraftGift({ userId: senior.id, sessionId, payee: snapshot(matches[0]), amountCents: input.amountCents, note });
   return { kind: "draft", order };
+}
+
+// A gift can only be paid to someone on the trusted list with a PayPal email. Blocked unknown-person gifts have neither.
+export type PayablePayee = Payee & { trustedPersonId: string; paypalEmail: string };
+
+export function payablePayee(order: Pick<Order, "kind" | "payee">): PayablePayee | null {
+  const p = order.payee;
+  return order.kind === "gift" && p?.trustedPersonId && p.paypalEmail ? { ...p, trustedPersonId: p.trustedPersonId, paypalEmail: p.paypalEmail } : null;
+}
+
+export function giftPayPalInput(order: Pick<Order, "id" | "product" | "totalCents">, payee: PayablePayee, senderName: string, appUrl: string, requestId: string): CreateGiftInput {
+  return {
+    kind: "gift",
+    orderId: order.id,
+    title: order.product.title,
+    amountCents: order.totalCents,
+    payeeEmail: payee.paypalEmail,
+    senderName,
+    returnUrl: `${appUrl}/api/paypal/return`,
+    cancelUrl: `${appUrl}/api/paypal/cancel`,
+    requestId,
+  };
+}
+
+export type PayGiftDeps = {
+  getOrder(id: string): Promise<Order | null>;
+  isTrusted(householdId: string, trustedPersonId: string): Promise<boolean>;
+  createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
+  setPaypalOrderId(id: string, paypalOrderId: string, payerRole: Role): Promise<boolean>;
+  appUrl: string;
+};
+
+// Anna already approved this exact amount and person, so the rules and the cap are not run again.
+// Only "is this person still trusted" is, because Anna may have removed them since.
+export async function payGift(deps: PayGiftDeps, household: Household, orderId: string): Promise<{ ok: true; approveUrl: string } | { ok: false; code: ErrorCode }> {
+  const order = await deps.getOrder(orderId);
+  if (!order || order.userId !== household.senior.id) return { ok: false, code: "not_found" };
+  const payee = payablePayee(order);
+  if (!payee) return { ok: false, code: "not_found" };
+  if (order.status !== "AWAITING_PAYMENT" || order.payerRole !== "senior") return { ok: false, code: "not_waiting" };
+  if (!(await deps.isTrusted(household.id, payee.trustedPersonId))) return { ok: false, code: "not_trusted" };
+
+  let paypal: { paypalOrderId: string; approveUrl: string };
+  try {
+    // Same request id on every ask, so PayPal returns the same order instead of a second one.
+    paypal = await deps.createPayPalOrder(giftPayPalInput(order, payee, household.senior.name, deps.appUrl, `create-${order.id}-senior-gift`));
+  } catch (err) {
+    console.error("PayPal order creation failed", err);
+    return { ok: false, code: "paypal_down" };
+  }
+  // The return page finds the order by its PayPal id, so a new id must be saved before Rose goes to PayPal.
+  if (paypal.paypalOrderId !== order.paypalOrderId && !(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId, "senior"))) {
+    return { ok: false, code: "request_changed" };
+  }
+  return { ok: true, approveUrl: paypal.approveUrl };
 }

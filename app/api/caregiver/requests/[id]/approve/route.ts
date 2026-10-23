@@ -20,9 +20,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     id,
     { household: await currentHousehold(), token },
   );
-  if (result.ok) return NextResponse.redirect(result.approveUrl, 303);
+  if (result.ok && result.approveUrl) return NextResponse.redirect(result.approveUrl, 303);
   const back = new URL(`/caregiver/requests/${id}`, req.url);
-  back.searchParams.set("error", result.code);
+  // A gift has no PayPal page for Anna: she lands back here and sees that Rose will send it herself.
+  if (result.ok) back.searchParams.set("approved", "1");
+  else back.searchParams.set("error", result.code);
   if (token) back.searchParams.set("t", token);
   return NextResponse.redirect(back, 303);
 }

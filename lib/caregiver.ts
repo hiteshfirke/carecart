@@ -14,7 +14,8 @@ export type CaregiverDeps = {
   appUrl: string;
 };
 
-export type ApproveResult = { ok: true; approveUrl: string } | { ok: false; code: ErrorCode };
+// approveUrl is null for a gift: Anna only approves it, and Rose pays from her own PayPal.
+export type ApproveResult = { ok: true; approveUrl: string | null } | { ok: false; code: ErrorCode };
 
 // Who is asking: the household cookie (Anna on the demo dashboard) and/or the token from her email link.
 export type Viewer = { household: Household | null; token: string | null };
@@ -41,9 +42,15 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
   if (!order || !canActOnRequest(order, viewer)) return { ok: false, code: "not_found" };
   const household = await deps.householdForUser(order.userId);
   if (!household) return { ok: false, code: "not_found" };
-  const resuming = order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver";
+  const gift = order.kind === "gift";
+  const resuming = !gift && order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver";
   if (order.status !== "AWAITING_CAREGIVER" && !resuming) {
     return { ok: false, code: "not_waiting" };
+  }
+  if (gift) {
+    // It stays Rose's money: Anna's OK hands the payment back to Rose, and no PayPal order exists yet.
+    const outcome = await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "caregiver", { payerRole: "senior" });
+    return !outcome || outcome.result === "rejected" ? { ok: false, code: "not_waiting" } : { ok: true, approveUrl: null };
   }
   let paypal: { paypalOrderId: string; approveUrl: string };
   try {
