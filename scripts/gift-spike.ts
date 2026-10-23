@@ -2,7 +2,7 @@
 // Touches no database. Needs DEMO_FAMILY_EMAIL (a sandbox personal account), APP_URL and the PayPal keys in .env.local.
 //   npm run gift:spike -- create                    creates a $1.00 gift order and prints the approve URL
 //   npm run gift:spike -- capture <paypalOrderId>   captures it once the buyer has approved
-import { capturePayPalOrder, createPayPalOrder } from "@/lib/paypal";
+import { capturePayPalOrder, createPayPalOrder, PayPalError } from "@/lib/paypal";
 
 async function create() {
   const payeeEmail = process.env.DEMO_FAMILY_EMAIL;
@@ -43,5 +43,11 @@ async function main() {
 
 main().catch((err) => {
   console.error((err as Error).message);
+  // The PayPal reason (e.g. a 422 PAYEE_ACCOUNT_RESTRICTED) is the point of this check, so show all of it.
+  if (err instanceof PayPalError) {
+    console.error(`status:   ${err.status}`);
+    console.error(`debug id: ${err.debugId ?? "(none)"}`);
+    console.error(`body:     ${JSON.stringify(err.body)}`);
+  }
   process.exit(1);
 });
