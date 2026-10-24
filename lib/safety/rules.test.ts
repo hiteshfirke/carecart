@@ -122,10 +122,32 @@ describe("evaluateRules", () => {
       expect(codes(r)).toContain("S1_SCAM_PHRASE");
     });
 
+    it.each([
+      "Sam's lawyers called me",
+      "there were two accidents",
+      "he is under arrest",
+      "they arrested him",
+      "my grandson got jailed",
+      "the police called about Sam",
+    ])("blocks a gift when they say a variant: %s", (said) => {
+      const r = evaluateRules(gift({}, { transcript: [said] }));
+      expect(r.route).toBe("blocked");
+      expect(codes(r)).toContain("S1_SCAM_PHRASE");
+    });
+
+    it.each(["my insurance policy renewed", "Sam is a policeman", "he arrestingly smiled", "jailbreak the phone"])("only whole words count for gifts: %s", (said) => {
+      expect(codes(evaluateRules(gift({}, { transcript: [said] })))).not.toContain("S1_SCAM_PHRASE");
+    });
+
     it("gift-only scam words don't block purchases", () => {
       const r = evaluateRules(input({ transcript: ["I need a hospital bed"] }));
       expect(codes(r)).not.toContain("S1_SCAM_PHRASE");
       expect(r.route).toBe("self_pay");
+    });
+
+    it.each(["a police scanner", "a book about lawyers", "accidents happen, I need a mop", "a jailed-hero novel", "the arrest scene DVD"])("gift-only variants don't block purchases: %s", (said) => {
+      const r = evaluateRules(input({ transcript: [said] }));
+      expect(codes(r)).not.toContain("S1_SCAM_PHRASE");
     });
 
     it("skips the new-store rule for gifts", () => {

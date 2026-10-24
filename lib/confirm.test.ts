@@ -203,6 +203,20 @@ describe("confirmOrder: gifts", () => {
     expect(paypalCalls).toHaveLength(0);
   });
 
+  it("asks again about a gift to the same person with gift words, and keeps the purchase words for purchases", async () => {
+    const dup = setup({ order: gift(2000), history: { minutesSinceSameProduct: 3 } });
+    expect(await confirmOrder(dup.deps, household, "o1", false)).toEqual({
+      outcome: "recheck",
+      message: "You sent Sam money a few minutes ago. Say confirm to send again, or say cancel.",
+    });
+    expect(dup.transitions).toHaveLength(0);
+    const tea = setup({ history: { minutesSinceSameProduct: 3 } });
+    expect(await confirmOrder(tea.deps, household, "o1", false)).toEqual({
+      outcome: "recheck",
+      message: "You ordered this same item a few minutes ago. Say confirm to order it again, or say cancel.",
+    });
+  });
+
   it("tells the AI check who is being paid", async () => {
     const seen: string[] = [];
     const { deps } = setup({ order: gift(2000) });

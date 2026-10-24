@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { appUrl } from "@/lib/appUrl";
-import { getHouseholdByUser, getOrder, setPaypalOrderId, transitionOrder } from "@/lib/db";
+import { getHouseholdByUser, getOrder, isTrusted, setPaypalOrderId, transitionOrder } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { createPayPalOrder } from "@/lib/paypal";
 import { approveRequest } from "@/lib/caregiver";
@@ -12,6 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     {
       getOrder,
       householdForUser: getHouseholdByUser,
+      isTrusted,
       transitionOrder,
       createPayPalOrder: (input) => createPayPalOrder(input),
       setPaypalOrderId,

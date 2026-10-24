@@ -84,7 +84,8 @@ export async function draftGift(deps: GiftDeps, household: Household, sessionId:
     const payee: Payee = matches.length === 1 ? snapshot(matches[0]) : { trustedPersonId: null, name: spoken, relationship: null, paypalEmail: null };
     const order = await deps.createDraftGift({ userId: senior.id, sessionId, payee, amountCents: input.amountCents, note });
     const flags: Flag[] = [{ code: "S1_SCAM_PHRASE", message: GIFT_SCAM_MESSAGE }];
-    await deps.transitionOrder(order.id, "CONFIRMED", "senior", { route: "blocked", flags });
+    // Rose never confirmed this: the rules stopped it while it was being drafted.
+    await deps.transitionOrder(order.id, "CONFIRMED", "rules", { route: "blocked", flags });
     // Anna may open the email on her own phone, so the link carries this order's token.
     const caregiverToken = deps.newToken();
     const stopped = await deps.transitionOrder(order.id, "BLOCKED", "rules", { caregiverToken });
@@ -101,11 +102,13 @@ export async function draftGift(deps: GiftDeps, household: Household, sessionId:
   if (matches.length > 1) return { kind: "ambiguous", names: matches.map((p) => p.name) };
 
   if (matches.length === 0) {
-    const { request, created } = await deps.openTrustedRequest(household.id, spoken, deps.newToken());
+    // Without the leading "my", as matchTrusted reads it: Anna adds "nephew", and "my nephew" then finds them.
+    const name = spoken.replace(/^my\s+/i, "").trim();
+    const { request, created } = await deps.openTrustedRequest(household.id, name, deps.newToken());
     // A repeat ask within the window reuses the open link, so Anna is not emailed twice.
     const emailed =
       created && deps.caregiverEmail
-        ? await deps.sendEmail({ to: deps.caregiverEmail, ...addPersonRequestEmail(senior, spoken, trustedRequestLink(deps.appUrl, request)) })
+        ? await deps.sendEmail({ to: deps.caregiverEmail, ...addPersonRequestEmail(senior, name, trustedRequestLink(deps.appUrl, request)) })
         : false;
     return { kind: "not_trusted", name: spoken, emailed };
   }
@@ -147,6 +150,7 @@ export type PayGiftDeps = {
   isTrusted(householdId: string, trustedPersonId: string): Promise<boolean>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
   setPaypalOrderId(id: string, paypalOrderId: string, payerRole: Role): Promise<boolean>;
+  transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   appUrl: string;
 };
 
@@ -158,7 +162,11 @@ export async function payGift(deps: PayGiftDeps, household: Household, orderId: 
   const payee = payablePayee(order);
   if (!payee) return { ok: false, code: "not_found" };
   if (!isWaitingGift(order)) return { ok: false, code: "not_waiting" };
-  if (!(await deps.isTrusted(household.id, payee.trustedPersonId))) return { ok: false, code: "not_trusted" };
+  if (!(await deps.isTrusted(household.id, payee.trustedPersonId))) {
+    // It can never be sent now, so it stops waiting instead of being offered to Rose again.
+    await deps.transitionOrder(order.id, "CANCELLED", "system", { declineReason: "not_trusted" });
+    return { ok: false, code: "not_trusted" };
+  }
 
   let paypal: { paypalOrderId: string; approveUrl: string };
   try {
@@ -168,9 +176,15 @@ export async function payGift(deps: PayGiftDeps, household: Household, orderId: 
     console.error("PayPal order creation failed", err);
     return { ok: false, code: "paypal_down" };
   }
-  // The return page finds the order by its PayPal id, so a new id must be saved before Rose goes to PayPal.
-  if (paypal.paypalOrderId !== order.paypalOrderId && !(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId, "senior"))) {
-    return { ok: false, code: "request_changed" };
+  if (paypal.paypalOrderId !== order.paypalOrderId) {
+    // PayPal forgot the request id and made a second order. The first may still be paid or pending, so never swap:
+    // Rose cancels and asks again instead of risking paying Sam twice.
+    if (order.paypalOrderId) {
+      console.error(`gift ${order.id}: PayPal returned order ${paypal.paypalOrderId} but the gift already has ${order.paypalOrderId}; not rebinding`);
+      return { ok: false, code: "request_changed" };
+    }
+    // The return page finds the order by its PayPal id, so the new id must be saved before Rose goes to PayPal.
+    if (!(await deps.setPaypalOrderId(order.id, paypal.paypalOrderId, "senior"))) return { ok: false, code: "request_changed" };
   }
   return { ok: true, approveUrl: paypal.approveUrl };
 }

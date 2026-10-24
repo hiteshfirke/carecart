@@ -8,6 +8,7 @@ import type { ErrorCode } from "@/lib/errors";
 export type CaregiverDeps = {
   getOrder(id: string): Promise<Order | null>;
   householdForUser(userId: string): Promise<Household | null>;
+  isTrusted(householdId: string, trustedPersonId: string): Promise<boolean>;
   transitionOrder(id: string, to: OrderStatus, actor: string, patch?: OrderPatch): Promise<TransitionOutcome | null>;
   createPayPalOrder(input: CreatePayPalOrderInput): Promise<{ paypalOrderId: string; approveUrl: string }>;
   setPaypalOrderId(id: string, paypalOrderId: string, payerRole: Role): Promise<boolean>;
@@ -48,6 +49,9 @@ export async function approveRequest(deps: CaregiverDeps, orderId: string, viewe
     return { ok: false, code: "not_waiting" };
   }
   if (gift) {
+    // Anna may have removed the person since Rose asked; an approved gift to them could never be sent.
+    const personId = order.payee?.trustedPersonId;
+    if (!personId || !(await deps.isTrusted(household.id, personId))) return { ok: false, code: "not_trusted" };
     // It stays Rose's money: Anna's OK hands the payment back to Rose, and no PayPal order exists yet.
     const outcome = await deps.transitionOrder(order.id, "AWAITING_PAYMENT", "caregiver", { payerRole: "senior" });
     return !outcome || outcome.result === "rejected" ? { ok: false, code: "not_waiting" } : { ok: true, approveUrl: null };

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { appUrl } from "@/lib/appUrl";
 import { createPayPalOrder } from "@/lib/paypal";
-import { getOrder, isTrusted, setPaypalOrderId } from "@/lib/db";
+import { getOrder, isTrusted, setPaypalOrderId, transitionOrder } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { payGift } from "@/lib/gifts";
 
@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!household) return NextResponse.json({ error: "no_demo_session" }, { status: 401 });
   const { id } = await params;
   const result = await payGift(
-    { getOrder, isTrusted, createPayPalOrder: (input) => createPayPalOrder(input), setPaypalOrderId, appUrl: appUrl(req) },
+    { getOrder, isTrusted, createPayPalOrder: (input) => createPayPalOrder(input), setPaypalOrderId, transitionOrder, appUrl: appUrl(req) },
     household,
     id,
   );

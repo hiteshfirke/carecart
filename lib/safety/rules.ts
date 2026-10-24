@@ -58,10 +58,11 @@ const SCAM_PHRASES: RegExp[] = [
 
 // Only checked for gifts: the classic "grandchild in trouble" scripts that ask for money sent to a person.
 const GIFT_SCAM_PHRASES: RegExp[] = [
-  /\bjail\b/i,
-  /\barrested\b/i,
-  /\blawyer\b/i,
-  /\baccident\b/i,
+  /\bjail(ed)?\b/i,
+  /\barrest(ed)?\b/i, // also "under arrest"
+  /\blawyers?\b/i,
+  /\baccidents?\b/i,
+  /\bpolice\b/i,
   /\bhospital\b/i,
   /\bnew\s+(phone\s+)?number\b/i,
   /\bcourier\b/i,

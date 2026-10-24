@@ -72,7 +72,10 @@ export async function confirmOrder(deps: ConfirmDeps, household: Household, orde
   });
 
   if (result.route === "recheck") {
-    return { outcome: "recheck", message: "You ordered this same item a few minutes ago. Say confirm to order it again, or say cancel." };
+    const message = payee
+      ? `You sent ${payee.name} money a few minutes ago. Say confirm to send again, or say cancel.`
+      : "You ordered this same item a few minutes ago. Say confirm to order it again, or say cancel.";
+    return { outcome: "recheck", message };
   }
 
   const confirmPatch: OrderPatch = { route: result.route, flags: result.flags, aiRisk: risk?.aiRisk, summary: risk?.caregiverSummary };

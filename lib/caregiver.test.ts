@@ -31,15 +31,27 @@ describe("canActOnRequest", () => {
   });
 });
 
-function setup(status: OrderStatus, opts: { paypalFails?: boolean; paypalOrderId?: string | null; saveFails?: boolean; kind?: "purchase" | "gift"; payerRole?: "senior" | "caregiver" | null } = {}) {
+const samPayee = { trustedPersonId: "t1", name: "Sam", relationship: "grandson", paypalEmail: "sam@example.com" };
+
+function setup(
+  status: OrderStatus,
+  opts: { paypalFails?: boolean; paypalOrderId?: string | null; saveFails?: boolean; kind?: "purchase" | "gift"; payerRole?: "senior" | "caregiver" | null; trusted?: boolean; payee?: Order["payee"] } = {},
+) {
   const order = {
     id: "o1", userId: "rose", kind: opts.kind ?? "purchase", status, payerRole: opts.payerRole ?? null, paypalOrderId: opts.paypalOrderId ?? null, quantity: 1, totalCents: 6500,
+    payee: opts.payee !== undefined ? opts.payee : opts.kind === "gift" ? samPayee : null,
     product: { productId: "p", title: "Monitor", priceCents: 6500, merchant: "walmart.com" },
   } as Order;
-  const calls: { paypal: string[]; to: OrderStatus[]; patches: (OrderPatch | undefined)[]; saved: [string, string, string][] } = { paypal: [], to: [], patches: [], saved: [] };
+  const calls: { paypal: string[]; to: OrderStatus[]; patches: (OrderPatch | undefined)[]; saved: [string, string, string][]; trusted: [string, string][] } = {
+    paypal: [], to: [], patches: [], saved: [], trusted: [],
+  };
   const deps: CaregiverDeps = {
     getOrder: async (id) => (id === "o1" ? order : null),
     householdForUser: async () => household,
+    isTrusted: async (householdId, trustedPersonId) => {
+      calls.trusted.push([householdId, trustedPersonId]);
+      return opts.trusted ?? true;
+    },
     transitionOrder: async (_id, to, _actor, patch) => {
       const kind = checkTransition(order.status, to).kind;
       if (kind === "apply") {
@@ -118,6 +130,7 @@ describe("approveRequest", () => {
   it("approving a gift hands it back to Rose", async () => {
     const { deps, calls } = setup("AWAITING_CAREGIVER", { kind: "gift" });
     expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: true, approveUrl: null });
+    expect(calls.trusted).toEqual([["h1", "t1"]]);
     expect(calls.to).toEqual(["AWAITING_PAYMENT"]);
     expect(calls.patches).toEqual([{ payerRole: "senior" }]);
     expect(calls.paypal).toEqual([]);
@@ -143,6 +156,21 @@ describe("approveRequest", () => {
     const { deps, calls } = setup("AWAITING_PAYMENT", { kind: "gift", payerRole: "caregiver" });
     expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: false, code: "not_waiting" });
     expect(calls.paypal).toEqual([]);
+  });
+
+  it("refuses a gift whose person is no longer on the trusted list", async () => {
+    for (const opts of [{ trusted: false }, { payee: null }, { payee: { ...samPayee, trustedPersonId: null } }]) {
+      const { deps, calls } = setup("AWAITING_CAREGIVER", { kind: "gift", ...opts });
+      expect(await approveRequest(deps, "o1", owner)).toEqual({ ok: false, code: "not_trusted" });
+      expect(calls.to).toEqual([]);
+      expect(calls.paypal).toEqual([]);
+    }
+  });
+
+  it("never asks about trust for a purchase", async () => {
+    const { deps, calls } = setup("AWAITING_CAREGIVER");
+    await approveRequest(deps, "o1", owner);
+    expect(calls.trusted).toEqual([]);
   });
 
   it("refuses a gift that was declined or blocked", async () => {
