@@ -31,7 +31,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             ) : null}
             {o.canSend ? (
               <form method="post" action={`/api/orders/${o.id}/pay?redirect=1`} className="mt-3">
-                <button className="btn btn-primary w-full">Send it</button>
+                <button className="btn btn-primary w-full" aria-label={`Send it to ${o.recipient}`}>
+                  Send it
+                </button>
               </form>
             ) : null}
           </li>

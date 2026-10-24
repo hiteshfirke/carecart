@@ -658,7 +658,8 @@ test("My orders shows gifts as To Sam and offers Send it only for a gift Anna ap
   await expect(item.getByText("Status: approved, waiting for you to send it.")).toBeVisible();
   const send = page.getByRole("button", { name: /send it/i });
   await expect(send).toHaveCount(1);
-  await expect(item.getByRole("button", { name: /send it/i })).toBeVisible();
+  // The visible text is "Send it"; the name adds who gets it, so several waiting gifts can be told apart.
+  await expect(item.getByRole("button", { name: "Send it to Sam", exact: true })).toBeVisible();
   expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(64);
   await expect(page.getByRole("listitem").filter({ hasText: "Gift to Ben" }).getByText("To Ben", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
@@ -681,4 +682,119 @@ test("My orders Send it posts to pay and shows only fixed error text", async ({ 
   await expect(alert).toHaveText("Something went wrong. Please try again.");
   await expect(page.getByText("Call this number")).toHaveCount(0);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+});
+
+const TEA = "33333333-3333-4333-8333-333333333333";
+
+test("an approved gift isn't announced over an open read-back, and 'send it' there confirms the read-back", async ({ page }) => {
+  await spyOnSpeech(page);
+  await page.route("**/api/agent", (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    const next = /sam/i.test(text) ? giftDraft : { ...draft, id: TEA };
+    return route.fulfill({ json: { sessionId: SESSION, reply: "Let me read that back to you.", options: null, draft: next } });
+  });
+  // Rose's gift goes to Anna and Rose keeps waiting on it; its status flips to approved on cue.
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => route.fulfill({ json: { outcome: "caregiver", caregiverName: "Anna", emailed: true } }));
+  let approved = false;
+  let polls = 0;
+  await page.route(`**/api/orders/${ORDER}`, (route) => {
+    if (approved) polls++;
+    const status = approved ? { status: "AWAITING_PAYMENT", payerRole: "senior" } : { status: "AWAITING_CAREGIVER", payerRole: null };
+    return route.fulfill({ json: { ...giftDraft, ...status, statusWords: "waiting" } });
+  });
+  let teaConfirms = 0;
+  await page.route(`**/api/orders/${TEA}/confirm`, (route) => {
+    teaConfirms++;
+    return route.fulfill({ json: { outcome: "recheck", message: "You ordered this same item a few minutes ago. Say confirm to order it again, or say cancel." } });
+  });
+  await page.route(`**/api/orders/${TEA}/cancel`, (route) => route.fulfill({ json: {} }));
+  let pays = 0;
+  await page.route("**/api/orders/*/pay", (route) => {
+    pays++;
+    return route.fulfill({ json: { approveUrl: PAYPAL } });
+  });
+  await startAsRose(page);
+  const box = await askForGift(page);
+  await box.fill("confirm");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText("needs Anna's OK");
+  await box.fill("I need green tea");
+  await box.press("Enter");
+  await expect(page.getByText("Total: $8.49")).toBeVisible(); // the tea read-back is open
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeFocused();
+
+  approved = true;
+  await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(0);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the poll's answer has been handled
+  const conversation = page.getByRole("region", { name: "Conversation" });
+  await expect(conversation.getByText(APPROVED)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send it to Sam" })).toHaveCount(0);
+
+  // With a read-back open, "send it" answers the read-back. It never sends the gift Rose has not been told about yet.
+  await box.fill("send it");
+  await box.press("Enter");
+  await expect.poll(() => teaConfirms).toBe(1);
+  await expect(conversation.getByText(/ordered this same item/)).toBeVisible();
+  expect(pays).toBe(0);
+  await expect(conversation.getByText(APPROVED)).toHaveCount(0);
+
+  await box.fill("cancel");
+  await box.press("Enter");
+  await expect(conversation.getByText(APPROVED)).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Send it to Sam" })).toBeVisible();
+  expect(pays).toBe(0);
+});
+
+test("a plain yes never sends a waiting gift", async ({ page, baseURL }) => {
+  await spyOnSpeech(page);
+  await mockPayPal(page);
+  const { approved } = await seedApprovedGift(page, baseURL);
+  let asked = 0;
+  await page.route("**/api/agent", (route) => {
+    asked++;
+    return route.fulfill({ json: { sessionId: SESSION, reply: "Do you want a case with them?", options: null, draft: null } });
+  });
+  const pays: string[] = [];
+  await page.route("**/api/orders/*/pay", (route) => {
+    pays.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: { approveUrl: PAYPAL } });
+  });
+  await page.goto("/talk");
+  await expect(page.getByRole("status")).toContainText(APPROVED);
+  const box = page.getByLabel("Or type what you need");
+  const question = page.getByRole("region", { name: "Conversation" }).getByText("Do you want a case with them?");
+  await box.fill("I need reading glasses");
+  await box.press("Enter");
+  await expect(question).toHaveCount(1);
+  // Answering the helper's question is not an order to send money.
+  for (const [i, said] of ["yes please", "confirm", "pay now"].entries()) {
+    await box.fill(said);
+    await box.press("Enter");
+    await expect(question).toHaveCount(i + 2);
+  }
+  expect(asked).toBe(4);
+  expect(pays).toEqual([]);
+  await box.fill("send it");
+  await box.press("Enter");
+  await expect(page).toHaveURL(PAYPAL);
+  expect(pays).toEqual([`/api/orders/${approved.id}/pay`]);
+});
+
+test("a waiting gift has a visible Send it to Sam button that sends it", async ({ page, baseURL }) => {
+  await spyOnSpeech(page);
+  await mockPayPal(page);
+  const { approved } = await seedApprovedGift(page, baseURL);
+  const pays: string[] = [];
+  await page.route("**/api/orders/*/pay", (route) => {
+    pays.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    return route.fulfill({ json: { approveUrl: PAYPAL } });
+  });
+  await page.goto("/talk");
+  const send = page.getByRole("button", { name: "Send it to Sam", exact: true });
+  await expect(send).toBeVisible();
+  expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(64);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+  await send.click();
+  await expect(page).toHaveURL(PAYPAL);
+  expect(pays).toEqual([`POST /api/orders/${approved.id}/pay`]);
 });

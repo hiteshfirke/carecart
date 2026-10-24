@@ -13,8 +13,7 @@ import { DEFAULT_SETTINGS, SettingsBar, loadSettings, saveSettings, type Setting
 
 type Line = { who: "you" | "helper"; text: string };
 type Draft = OrderView & { readBack: string };
-// "send": a gift Anna approved is waiting for Rose to say "send it".
-type Phase = "idle" | "options" | "confirm" | "send" | "busy" | "waiting";
+type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
 type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
 const HELP = 'Tell me what you need, like "I need reading glasses". You can say "repeat", "slower", "faster", "cancel" or "help" at any time.';
@@ -28,8 +27,11 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [lines, setLines] = useState<Line[]>([]);
   const [live, setLive] = useState("");
-  const [phase, setPhase] = useState<Phase>(waitingGift ? "send" : "idle");
-  const [sendable, setSendable] = useState<OrderView | null>(waitingGift);
+  const [phase, setPhase] = useState<Phase>("idle");
+  // A gift Anna approved that Rose has yet to send. The ref is for callbacks that run later, so they never read a stale gift.
+  const [gift, setGiftState] = useState<OrderView | null>(waitingGift);
+  const giftRef = useRef<OrderView | null>(waitingGift);
+  const announcedGift = useRef<string | null>(null);
   const [options, setOptions] = useState<OptionView[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   const optionsHeading = useRef<HTMLHeadingElement>(null);
   const readBackHeading = useRef<HTMLHeadingElement>(null);
   const handleTextRef = useRef<(text: string) => void>(() => {});
+  const spoken = useRef<Promise<void>>(Promise.resolve()); // the reply being spoken, so a later announcement waits for it
   const router = useRouter();
   // The last order status Rose was told about. Kept outside the polling effect, which restarts when speech settings change.
   const announced = useRef<{ id: string; status: string } | null>(null);
@@ -58,9 +61,22 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       lastHelper.current = text;
       setLive(text);
       setLines((l) => [...l, { who: "helper", text }]);
-      return speak(text, rate);
+      spoken.current = speak(text, rate);
+      return spoken.current;
     },
     [speak],
+  );
+
+  const setGift = useCallback((g: OrderView | null) => {
+    giftRef.current = g;
+    setGiftState(g);
+  }, []);
+  // Forget the gift only when it was sent or can't be sent any more, never because something else was cancelled.
+  const dropGift = useCallback(
+    (id: string) => {
+      if (giftRef.current?.id === id) setGift(null);
+    },
+    [setGift],
   );
 
   useEffect(() => {
@@ -96,15 +112,15 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           setOptions(data.options);
           setPhase("options");
         } else {
-          setPhase(draft ? "confirm" : options ? "options" : sendable ? "send" : "idle");
+          setPhase(draft ? "confirm" : options ? "options" : "idle");
         }
         await say(data.reply);
       } catch {
-        setPhase(draft ? "confirm" : sendable ? "send" : "idle");
+        setPhase(draft ? "confirm" : "idle");
         await say("Sorry, I couldn't reach the helper. Please try again.");
       }
     },
-    [sessionId, say, draft, options, sendable, router],
+    [sessionId, say, draft, options, router],
   );
 
   const cancel = useCallback(async () => {
@@ -117,7 +133,6 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       return;
     }
     setOptions(null);
-    setSendable(null);
     setPhase("idle");
     await say("Okay. What else do you need?");
   }, [draft, say]);
@@ -128,7 +143,6 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       if (settings.screenReader) {
         // The app's voice is off, so don't navigate away before the screen reader has read the instructions.
         setDraft(null);
-        setSendable(null);
         setPhase("idle");
         setPayUrl(approveUrl ?? null);
         await say("Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.");
@@ -141,11 +155,12 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   );
 
   const sendGift = useCallback(async () => {
-    if (!sendable) return;
+    const g = giftRef.current;
+    if (!g) return;
     setPhase("busy");
     let out: { approveUrl?: string; error?: string };
     try {
-      const res = await fetch(`/api/orders/${sendable.id}/pay`, { method: "POST" });
+      const res = await fetch(`/api/orders/${g.id}/pay`, { method: "POST" });
       if (res.status === 401) {
         router.push("/");
         return;
@@ -155,15 +170,15 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       out = { error: "paypal_down" };
     }
     if (out.approveUrl) {
+      dropGift(g.id);
       await openPayPal(out.approveUrl);
       return;
     }
     // Only a PayPal hiccup is worth trying again; every other answer means this gift can't be sent from here.
-    const retry = out.error === "paypal_down";
-    if (!retry) setSendable(null);
-    setPhase(retry ? "send" : "idle");
+    if (out.error !== "paypal_down") dropGift(g.id);
+    setPhase("idle");
     await say(errorMessage(out.error ?? "unknown") ?? "");
-  }, [sendable, openPayPal, say, router]);
+  }, [openPayPal, dropGift, say, router]);
 
   const confirm = useCallback(async () => {
     if (!draft) return;
@@ -210,7 +225,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       const text = raw.trim();
       if (!text) return;
       setLines((l) => [...l, { who: "you", text }]);
-      const mode: Mode = phase === "options" || phase === "confirm" ? phase : phase === "send" ? "confirm" : "idle";
+      const mode: Mode = phase === "options" || phase === "confirm" ? phase : "idle";
       const cmd = parseCommand(text, mode);
       switch (cmd.type) {
         case "repeat":
@@ -239,7 +254,13 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           else await speak(lastHelper.current || HELP);
           return;
         case "confirm":
-          await (phase === "send" ? sendGift() : confirm());
+          await confirm();
+          return;
+        case "send":
+          // "Send it" answers an open read-back; otherwise it sends the approved gift. Anything else is for the helper.
+          if (draft && phase === "confirm") await confirm();
+          else if (giftRef.current && !draft && !options) await sendGift();
+          else await callAgent(text);
           return;
         case "select":
           await callAgent(`I'd like option ${cmd.index + 1}.`);
@@ -249,7 +270,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           return;
       }
     },
-    [phase, settings, speak, say, cancel, confirm, sendGift, callAgent, draft],
+    [phase, settings, speak, say, cancel, confirm, sendGift, callAgent, draft, options],
   );
 
   useEffect(() => {
@@ -270,16 +291,13 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       const payer = o.payerRole === "caregiver" ? `${caregiverName} paid` : "Your payment went through";
       const finish = () => {
         setWatch(null);
-        setSendable((s) => (s?.id === o.id ? null : s));
+        dropGift(o.id);
         setPhase("idle");
       };
       if (o.status === "AWAITING_PAYMENT") {
-        if (o.kind === "gift" && o.payerRole === "senior") {
-          // Anna only approves a gift. Rose sends it herself, so wait for her to say so (unless she is busy with something else).
-          setSendable(o);
-          setPhase((p) => (p === "idle" || p === "waiting" ? "send" : p));
-          void say(giftApprovedMessage(caregiverName, o.recipient));
-        } else void say(`${caregiverName} approved your ${o.title} and is paying for it now.`);
+        // Anna only approves a gift. Rose sends it herself, so she is asked to (see the announcement effect).
+        if (o.kind === "gift" && o.payerRole === "senior") setGift(o);
+        else void say(`${caregiverName} approved your ${o.title} and is paying for it now.`);
       } else if (o.status === "PAID" || o.status === "SHIPPED") {
         void say(o.kind === "gift" ? paymentResultMessage(o, "paid", caregiverName) : `${payer} for your ${o.title}. It's on the way.`);
         finish();
@@ -292,15 +310,16 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [watch, caregiverName, say]);
+  }, [watch, caregiverName, say, setGift, dropGift]);
 
-  // A gift Anna approved while Rose was away: tell her as soon as she arrives.
+  // Tell Rose once about a gift Anna approved, on arrival or when Anna answers. Not over an open read-back, options list,
+  // PayPal link or call in progress: it waits until those are done, and then until the reply being spoken has finished.
+  const giftHeld = Boolean(draft || options || payUrl) || phase === "busy";
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the one-time announcement on arrival
-    if (waitingGift) void say(giftApprovedMessage(caregiverName, waitingGift.recipient));
-    // Runs once on arrival.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!gift || giftHeld || announcedGift.current === gift.id) return;
+    announcedGift.current = gift.id;
+    void spoken.current.then(() => say(giftApprovedMessage(caregiverName, gift.recipient)));
+  }, [gift, giftHeld, caregiverName, say]);
 
   // Coming back from PayPal: show the result as text (speech may be blocked without a tap).
   useEffect(() => {
@@ -378,6 +397,17 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           <p className="text-[1.3rem]">{returned}</p>
           <button type="button" className="btn" onClick={() => void speak(returned)}>
             Tap to hear
+          </button>
+        </section>
+      ) : null}
+
+      {gift && !giftHeld ? (
+        <section aria-labelledby="gift-h" className="flex flex-col gap-2 rounded-2xl border-[3px] p-4">
+          <h2 id="gift-h" className="font-bold">
+            Gift ready to send
+          </h2>
+          <button type="button" className="btn btn-primary" onClick={() => void sendGift()}>
+            Send it to {gift.recipient ?? "them"}
           </button>
         </section>
       ) : null}

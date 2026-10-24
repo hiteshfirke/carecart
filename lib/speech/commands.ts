@@ -7,6 +7,7 @@ export type Command =
   | { type: "slower" }
   | { type: "faster" }
   | { type: "help" }
+  | { type: "send" }
   | { type: "back" }
   | { type: "select"; index: 0 | 1 | 2 }
   | { type: "say"; text: string };
@@ -14,8 +15,10 @@ export type Command =
 // Exact, whole-utterance matches only. "yes but wait" must never pay.
 export const CONFIRM_PHRASES: ReadonlySet<string> = new Set([
   "yes", "yes please", "confirm", "confirm it", "yes confirm", "pay", "pay now", "pay it", "yes pay", "yes pay it", "yes pay now",
-  "send it", "yes send it", "send the money",
 ]);
+
+// Sending an approved gift is its own command, not a confirm: a bare "yes" must never send money Rose wasn't asked about.
+export const SEND_PHRASES: ReadonlySet<string> = new Set(["send it", "yes send it", "send the money"]);
 
 export function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -51,6 +54,7 @@ export function parseCommand(text: string, mode: Mode): Command {
   if (speed) return { type: speed };
   if (/^(help|what can i say)$/.test(t)) return { type: "help" };
   if (/^(go back|back)$/.test(t)) return { type: "back" };
+  if (SEND_PHRASES.has(t)) return { type: "send" };
   if (mode === "confirm" && CONFIRM_PHRASES.has(t)) return { type: "confirm" };
   if (mode === "options") {
     const m = t.match(SELECT);

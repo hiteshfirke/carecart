@@ -8,15 +8,8 @@ describe("parseCommand", () => {
     }
   });
 
-  it.each(["send it", "yes send it", "Send the money.", "Yes, send it"])("confirms %s in confirm mode", (t) => {
-    expect(parseCommand(t, "confirm")).toEqual({ type: "confirm" });
-  });
-
-  it("does not confirm a longer sentence that starts with send it", () => {
-    for (const t of ["send it later", "send it to Tom", "send the money to Tom"]) {
-      expect(parseCommand(t, "confirm")).toEqual({ type: "say", text: t });
-    }
-    expect(parseCommand("send it", "idle").type).toBe("say");
+  it("never confirms with the send phrases: sending is its own command", () => {
+    for (const t of ["send it", "yes send it", "send the money"]) expect(parseCommand(t, "confirm")).toEqual({ type: "send" });
   });
 
   it("never confirms ambiguous speech", () => {
@@ -48,6 +41,22 @@ describe("parseCommand", () => {
     expect(parseCommand("slow down", "idle")).toEqual({ type: "slower" });
     expect(parseCommand("help", "options")).toEqual({ type: "help" });
     expect(parseCommand("go back", "confirm")).toEqual({ type: "back" });
+  });
+});
+
+describe("send command", () => {
+  it.each(["send it", "yes send it", "send the money", "Send it.", "Yes, send it", "SEND THE MONEY!"])("%s sends in every mode", (t) => {
+    for (const mode of ["idle", "options", "confirm"] as const) expect(parseCommand(t, mode)).toEqual({ type: "send" });
+  });
+
+  it("leaves longer sentences to the helper", () => {
+    for (const t of ["send it later", "send it to Tom", "send the money to Tom", "please send it"]) {
+      for (const mode of ["idle", "options", "confirm"] as const) expect(parseCommand(t, mode)).toEqual({ type: "say", text: t });
+    }
+  });
+
+  it("does not make a bare yes or confirm mean send", () => {
+    for (const t of ["yes", "yes please", "confirm", "pay now"]) expect(parseCommand(t, "idle")).toEqual({ type: "say", text: t });
   });
 });
 
