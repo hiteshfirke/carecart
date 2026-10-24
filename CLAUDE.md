@@ -1,5 +1,13 @@
 @AGENTS.md
 
+## What
+Voice-first shopping + send-money-to-family for elderly/blind (Rose) + caregiver (Anna). PayPal sandbox. Next.js 16, Neon, Groq/Claude. AI talks, code moves money: 5 tools, none pay. PayPal AI Hackathon, due Nov 11. Live: carecart-seven.vercel.app.
+
+## Status
+2026-10-24.
+- Done: shopping (live). Send-money feature (trusted list, gift read-back, Anna OK, Rose sends, scam block at draft, direct payee), on branch `feat/send-money`, not merged. Unit 277, e2e 39 green.
+- Next: merge + push, `DEMO_FAMILY_EMAIL` on Vercel, live manual checks (`docs/manual-test.md` Part 13), video, Devpost by Nov 11.
+
 # Working on CareCart
 
 ## Communication

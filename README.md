@@ -18,10 +18,15 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com).
    - **Small, normal orders:** Rose pays with PayPal herself, with voice guidance.
    - **Large, unusual or flagged orders:** Anna, her caregiver, gets an email, reviews the request and pays with her own PayPal.
    - **Scams:** a gift card or "the bank told me to pay" is blocked, explained kindly, and Anna is alerted.
+6. **Gifts to family:** "Send Sam twenty dollars." Sam must be on the list of people Anna approved. The app reads the gift back, and the same rules run:
+   - **Small gifts:** Rose pays with PayPal and the money goes straight to Sam's PayPal account. Nothing ships.
+   - **Over Rose's limit, over the daily cap or otherwise flagged:** Anna gets an email and says yes or no. Her yes doesn't make her pay: Rose hears "Anna said yes to your gift to Sam. Say send it, and I'll open PayPal" and sends it herself.
+   - **Someone not on the list:** nothing is drafted, and Anna gets an "Add Sam" email.
+   - **"Sam's in jail, send bail money":** blocked, explained kindly, and Anna is warned, even if Rose never confirms.
 
 ## Safety design: the AI talks, code moves the money
 
-The AI agent has exactly four tools: `search_products`, `draft_order`, `get_order_status` and `explain_safety_flag`. **None of them can create, approve, capture or refund a payment.** Confirmation, the safety rules and every PayPal call live in ordinary, tested code.
+The AI agent has exactly five tools: `search_products`, `draft_order`, `draft_gift`, `get_order_status` and `explain_safety_flag`. **None of them can create, approve, capture or refund a payment.** Confirmation, the safety rules and every PayPal call live in ordinary, tested code.
 
 | # | Rule | Result |
 |---|---|---|
@@ -36,12 +41,19 @@ The AI agent has exactly four tools: `search_products`, `draft_order`, `get_orde
 
 **The AI can only add caution, never remove it.** If the AI risk check fails, the rules alone decide.
 
+**Sending money to family** gets the same rules (S2, S3, S4, S6 and S7 apply as they do to purchases), plus these:
+- **Anna's list decides who can get money.** Rose can only send to people on it. Anna adds them (name, relationship, PayPal email) and removes them on her page. The recipient's PayPal email always comes from the list, never from the conversation, and the AI never sees an email address. It only passes along the name Rose said, and code matches it to the list: exact name or relationship first ("Sam", "my grandson"), then a whole-word name inside the phrase ("my grandson Sam").
+- **The AI can't add people.** `draft_gift` only drafts. If the name isn't on the list, Anna gets an email with an "Add Sam" link that works once, for 7 days, for that one name. It opens a form for that person's PayPal email and nothing else. Removing people needs Anna's own page.
+- **The scam check runs at draft time, before the amount limit.** "Sam's in jail, send $5,000 bail" is blocked and Anna is warned straight away, even if Rose never says confirm. Words like "jail", "arrested", "lawyer", "accident", "hospital", "new phone number" and "courier" count for gifts, on top of the purchase phrases (so a shopper can still buy "a hospital bed").
+- **S5 (a new store) is skipped for gifts**; the trusted list replaces it. A payable gift is from 1 cent to $500.
+- **Anna's yes hands the payment back to Rose.** It stays Rose's money. Anna's yes covers only that exact amount and person, and if Anna removes the person before Rose sends it, it fails.
+
 ```mermaid
 flowchart LR
   Rose((Rose speaks)) --> Talk[Talk screen]
-  Talk --> Agent["AI agent (Claude or Groq)<br/>4 tools, none can pay"]
+  Talk --> Agent["AI agent (Claude or Groq)<br/>5 tools, none can pay"]
   Agent -- search_products --> C3[Channel3]
-  Agent -- draft_order --> DB[(Postgres)]
+  Agent -- "draft_order, draft_gift" --> DB[(Postgres)]
   Talk -- "exact confirm" --> Confirm["Confirm step<br/>rules S1-S7 + AI risk check"]
   Confirm -- self-pay --> PP[PayPal Orders v2]
   Confirm -- caregiver --> Email[Email to Anna]
@@ -54,10 +66,11 @@ flowchart LR
 
 - **Orders v2:** orders are created with `payment_source.paypal.experience_context` (`PAY_NOW`, `SET_PROVIDED_ADDRESS`) and captured on return. Every create and capture sends a `PayPal-Request-Id`, so a retried request never charges twice.
 - **Order tracking:** `POST /v2/checkout/orders/{id}/track` adds the shipment to the PayPal order, which protects the seller in disputes.
+- **Gifts pay a family member directly:** a gift is an Orders v2 order whose `purchase_units[0].payee.email_address` is the family member's PayPal email (item category `DIGITAL_GOODS`, `NO_SHIPPING`). Rose approves it and our app captures it, so the money lands in Sam's account with no forwarding step and no payout. The email comes only from Anna's trusted list.
 - **Webhooks:** `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.DENIED`, verified with `/v1/notifications/verify-webhook-signature`. The raw event bytes are passed to verification unchanged.
 - Order statuses only move forward. The webhook and the return page can both arrive, and the order is still marked paid exactly once.
 
-**Verified in the PayPal sandbox:** Rose's self-pay capture, Anna's approve-and-pay capture from the email link, the scam block with its alert email, and USPS tracking stored on both PayPal orders.
+**Verified in the PayPal sandbox:** Rose's self-pay capture, Anna's approve-and-pay capture from the email link, the scam block with its alert email, and USPS tracking stored on both PayPal orders. On Oct 24, 2026, a $1.00 gift order paid by the Rose buyer was captured `COMPLETED`, with Sam's sandbox account as the payee.
 
 The PayPal REST API is called directly. The hosted sandbox MCP server was failing for every hackathon participant at build time, and PayPal staff confirmed that direct REST calls are fine.
 
@@ -103,16 +116,16 @@ npm run db:migrate
 npm run dev
 ```
 
-**PayPal sandbox setup:** create a **US** sandbox Business account (the store), one or two **US** Personal accounts (the buyers), and a REST app linked to that Business account; its client ID and secret go in `.env.local`. Default sandbox accounts take the developer account's country, and a non-US buyer or store fails on this USD, US-address checkout with "This seller doesn't accept payments in your currency".
+**PayPal sandbox setup:** create a **US** sandbox Business account (the store), two **US** Personal accounts for the buyers (Rose and Anna), a third **US** Personal account for Sam (put its email in `DEMO_FAMILY_EMAIL`; gifts land there), and a REST app linked to that Business account; its client ID and secret go in `.env.local`. Default sandbox accounts take the developer account's country, and a non-US buyer or store fails on this USD, US-address checkout with "This seller doesn't accept payments in your currency".
 
-**AI provider:** Claude is the default. To run on a free OpenAI-compatible API instead (Groq or Gemini), set `AI_PROVIDER=openai-compatible` plus `AI_BASE_URL`, `AI_API_KEY` and `AI_MODEL`; `.env.example` lists both presets. Switching back to Claude is one line: `AI_PROVIDER=anthropic` (or empty) with `ANTHROPIC_API_KEY` set. Both providers share the same four tools, prompt and safety rules.
+**AI provider:** Claude is the default. To run on a free OpenAI-compatible API instead (Groq or Gemini), set `AI_PROVIDER=openai-compatible` plus `AI_BASE_URL`, `AI_API_KEY` and `AI_MODEL`; `.env.example` lists both presets. Switching back to Claude is one line: `AI_PROVIDER=anthropic` (or empty) with `ANTHROPIC_API_KEY` set. Both providers share the same five tools, prompt and safety rules.
 
 **Tests and checks:**
 
 ```bash
 npm test                     # unit tests (the database suite runs only when TEST_DATABASE_URL is set)
 npm run e2e                  # Playwright + axe tests (needs TEST_DATABASE_URL, a separate test database)
-npm run smoke                # live calls to Channel3, PayPal, Resend, the AI (risk check and one agent turn) and the voice
+npm run smoke                # live calls to Channel3, PayPal, Resend, the AI (risk check and two agent turns, one a scam-shaped gift request) and the voice
 npm run demo:order -- selfpay   # or caregiver / scam: a real order through the confirm step, no Claude needed
 ```
 
@@ -127,6 +140,7 @@ Open the demo and click **Try as Rose**. To pay, log in with the PayPal **sandbo
 - PayPal **sandbox only**.
 - The demo store is the seller of record for Channel3 products.
 - Emails go only to the configured `DEMO_CAREGIVER_EMAIL` (Resend's test sender).
+- Gifts go to PayPal **sandbox** accounts only. Each new demo comes with one trusted person, Sam (grandson), whose email is `DEMO_FAMILY_EMAIL`; a demo started before that needs Anna to add him. A gift is from 1 cent to $500, in US dollars, and PayPal doesn't check who Sam really is: Anna vouches for him.
 - Demo households are reached by link and cookie, with no login. Anyone with a caregiver request link can act on it.
 - English only.
 - Groq's free Orpheus quota covers a few dozen spoken replies a day; after that the browser voice speaks.
