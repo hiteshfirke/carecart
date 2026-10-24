@@ -6,6 +6,11 @@ export function caregiverSentMessage(caregiverName: string, emailed: boolean): s
   return `This one needs ${caregiverName}'s OK. ${caregiverName} will see it on the CareCart page. I'll tell you as soon as there's an answer.`;
 }
 
+// Said when Anna has approved a gift and Rose still has to send it herself.
+export function giftApprovedMessage(caregiverName: string, recipient: string | null): string {
+  return `${caregiverName} said yes to your gift to ${recipient ?? "them"}. Say send it, and I'll open PayPal.`;
+}
+
 type ResultOrder = { title: string; totalWords: string; status: string; kind?: OrderKind; recipient?: string | null };
 
 // What Rose sees and hears after coming back from PayPal.

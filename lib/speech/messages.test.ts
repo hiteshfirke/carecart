@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caregiverSentMessage } from "./messages";
+import { caregiverSentMessage, giftApprovedMessage } from "./messages";
 
 describe("caregiverSentMessage", () => {
   it("says the request was sent only when the email went out", () => {
@@ -11,6 +11,12 @@ describe("caregiverSentMessage", () => {
 });
 
 import { paymentResultMessage } from "./messages";
+
+describe("giftApprovedMessage", () => {
+  it("tells Rose Anna said yes and what to say next", () => {
+    expect(giftApprovedMessage("Anna", "Sam")).toBe("Anna said yes to your gift to Sam. Say send it, and I'll open PayPal.");
+  });
+});
 
 describe("paymentResultMessage", () => {
   const order = { title: "Green Tea", totalWords: "ten dollars", status: "PAID" as const };

@@ -19,7 +19,7 @@ export function ReadBack({ draft, headingRef, onConfirm, onCancel }: { draft: Or
         {draft.title}
       </p>
       <p className="text-[1.6rem] font-bold">Total: ${formatUsd(draft.totalCents)}</p>
-      <p>From {draft.merchant}</p>
+      <p>{draft.kind === "gift" ? `To ${draft.recipient ?? draft.merchant}` : `From ${draft.merchant}`}</p>
       <div className="flex flex-wrap gap-3">
         <button type="button" className="btn btn-primary flex-1" onClick={onConfirm}>
           Confirm (Enter)

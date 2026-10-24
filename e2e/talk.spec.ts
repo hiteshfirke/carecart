@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import * as db from "../lib/db";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
 const ORDER = "11111111-1111-4111-8111-111111111111";
@@ -14,6 +15,13 @@ const draft = {
   flags: [], tracking: null, declineReason: null, payerRole: null, summary: null,
   readBack: 'You\'re buying Lipton Green Tea, 100 bags, for eight dollars and forty-nine cents in total, from Target. Say "confirm" or press Confirm to continue, or say "cancel".',
 };
+
+const giftDraft = {
+  ...draft, title: "Gift to Sam", totalCents: 2000, totalWords: "twenty dollars", merchant: "Sam", kind: "gift", recipient: "Sam",
+  readBack: 'You\'re sending twenty dollars to Sam, your grandson, through PayPal. Say "confirm" or press Confirm to continue, or say "cancel".',
+};
+const APPROVED = "Anna said yes to your gift to Sam. Say send it, and I'll open PayPal.";
+const PAYPAL = "https://www.sandbox.paypal.com/checkoutnow?token=PP-GIFT";
 
 // Never call the real voice service from tests: by default the server voice is "off", so the browser voice is used.
 test.beforeEach(async ({ page }) => {
@@ -525,4 +533,152 @@ test("when a piece fails, the browser voice takes over and the prefetched piece 
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await counts(page)).synth).toBeGreaterThan(0); // the browser voice took over
   await expect.poll(() => aborted.length).toBeGreaterThan(0);
+});
+
+// Rose's draft is a gift to Sam, whatever she says.
+async function mockGiftAgent(page: Page) {
+  await page.route("**/api/agent", (route) => route.fulfill({ json: { sessionId: SESSION, reply: "Let me read that back to you.", options: null, draft: giftDraft } }));
+}
+
+// PayPal itself is never reached from tests.
+async function mockPayPal(page: Page) {
+  await page.route("https://www.sandbox.paypal.com/**", (route) => route.fulfill({ contentType: "text/html", body: "<title>PayPal</title>" }));
+}
+
+async function askForGift(page: Page) {
+  const box = page.getByLabel("Or type what you need");
+  await box.fill("send twenty dollars to Sam");
+  await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeFocused();
+  return box;
+}
+
+test("a gift reads back \"To Sam\" and pays Sam through PayPal", async ({ page }) => {
+  await spyOnSpeech(page);
+  await mockGiftAgent(page);
+  await mockPayPal(page);
+  let confirmCalls = 0;
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => {
+    confirmCalls++;
+    return route.fulfill({ json: { outcome: "pay", approveUrl: PAYPAL } });
+  });
+  await startAsRose(page);
+  const box = await askForGift(page);
+  const readBack = page.getByRole("region", { name: /check your order/i });
+  await expect(readBack.getByText("To Sam", { exact: true })).toBeVisible();
+  await expect(readBack.getByText(/^From /)).toHaveCount(0);
+  expect(confirmCalls).toBe(0);
+  await box.fill("confirm");
+  await box.press("Enter");
+  await expect(page).toHaveURL(PAYPAL);
+  expect(confirmCalls).toBe(1);
+});
+
+test("Anna's approval of a gift asks Rose to send it", async ({ page }) => {
+  await spyOnSpeech(page);
+  await mockGiftAgent(page);
+  await mockPayPal(page);
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => route.fulfill({ json: { outcome: "caregiver", caregiverName: "Anna", emailed: true } }));
+  await page.route(`**/api/orders/${ORDER}`, (route) =>
+    route.fulfill({ json: { ...giftDraft, status: "AWAITING_PAYMENT", statusWords: "approved, waiting for you to send it", payerRole: "senior" } }),
+  );
+  const pays: string[] = [];
+  await page.route(`**/api/orders/${ORDER}/pay`, (route) => {
+    pays.push(route.request().method());
+    return route.fulfill({ json: { approveUrl: PAYPAL } });
+  });
+  await startAsRose(page);
+  const box = await askForGift(page);
+  await box.fill("confirm");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText(APPROVED, { timeout: 10_000 });
+  // Anna's yes is not Rose's payment: nothing is sent until she says so.
+  expect(pays).toEqual([]);
+  await box.fill("send it");
+  await box.press("Enter");
+  await expect(page).toHaveURL(PAYPAL);
+  expect(pays).toEqual(["POST"]);
+});
+
+// Anna approved a gift to Sam. A newer gift to Ben was paid by Rose herself, so it must never be offered for sending.
+async function seedApprovedGift(page: Page, baseURL: string | undefined) {
+  const h = await db.createHousehold(null);
+  const [sam] = await db.listTrustedPeople(h.id);
+  const ben = await db.addTrustedPerson(h.id, { name: "Ben", relationship: "neighbor", paypalEmail: "ben@example.com" });
+  const session = await db.createSession(h.senior.id);
+  const payee = (p: { id: string; name: string; relationship: string | null; paypalEmail: string }) => ({ trustedPersonId: p.id, name: p.name, relationship: p.relationship, paypalEmail: p.paypalEmail });
+  const approved = await db.createDraftGift({ userId: h.senior.id, sessionId: session.id, payee: payee(sam), amountCents: 2000, note: null });
+  await db.transitionOrder(approved.id, "CONFIRMED", "test", { route: "caregiver" });
+  await db.transitionOrder(approved.id, "AWAITING_CAREGIVER", "test");
+  await db.transitionOrder(approved.id, "AWAITING_PAYMENT", "test", { payerRole: "senior" });
+  const own = await db.createDraftGift({ userId: h.senior.id, sessionId: session.id, payee: payee(ben!), amountCents: 1000, note: null });
+  await db.transitionOrder(own.id, "CONFIRMED", "test", { route: "self_pay" });
+  await db.transitionOrder(own.id, "AWAITING_PAYMENT", "test", { payerRole: "senior", paypalOrderId: `PP-OWN-${crypto.randomUUID()}` });
+  await page.context().addCookies([{ name: "cc_household", value: h.id, url: baseURL ?? "http://localhost:3100" }]);
+  return { approved, own };
+}
+
+test("an approved gift waiting on load is announced, and Rose can send it", async ({ page, baseURL }) => {
+  await spyOnSpeech(page);
+  await mockPayPal(page);
+  const { approved, own } = await seedApprovedGift(page, baseURL);
+  const pays: string[] = [];
+  let tries = 0;
+  await page.route("**/api/orders/*/pay", (route) => {
+    pays.push(new URL(route.request().url()).pathname);
+    return tries++ === 0 ? route.fulfill({ status: 502, json: { error: "paypal_down" } }) : route.fulfill({ json: { approveUrl: PAYPAL } });
+  });
+  await page.goto("/talk");
+  await expect(page.getByRole("status")).toContainText(APPROVED);
+  const box = page.getByLabel("Or type what you need");
+  await box.fill("send it");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText("PayPal isn't answering right now");
+  await expect(page).toHaveURL(/\/talk$/);
+  await box.fill("yes send it");
+  await box.press("Enter");
+  await expect(page).toHaveURL(PAYPAL);
+  expect(pays).toEqual([`/api/orders/${approved.id}/pay`, `/api/orders/${approved.id}/pay`]);
+  expect(pays.join()).not.toContain(own.id);
+});
+
+test("a paid gift says \"Sent. Sam got twenty dollars.\" on return from PayPal", async ({ page }) => {
+  await page.route(`**/api/orders/${ORDER}`, (route) => route.fulfill({ json: { ...giftDraft, status: "PAID", statusWords: "sent", payerRole: "senior" } }));
+  await startAsRose(page);
+  await page.goto(`/talk?order=${ORDER}&payment=paid`);
+  await expect(page.getByText("Sent. Sam got twenty dollars.").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Tap to hear" })).toBeVisible();
+});
+
+test("My orders shows gifts as To Sam and offers Send it only for a gift Anna approved", async ({ page, baseURL }) => {
+  await seedApprovedGift(page, baseURL);
+  await page.goto("/orders");
+  const item = page.getByRole("listitem").filter({ hasText: "Gift to Sam" });
+  await expect(item.getByText("To Sam", { exact: true })).toBeVisible();
+  await expect(item.getByText("Status: approved, waiting for you to send it.")).toBeVisible();
+  const send = page.getByRole("button", { name: /send it/i });
+  await expect(send).toHaveCount(1);
+  await expect(item.getByRole("button", { name: /send it/i })).toBeVisible();
+  expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(64);
+  await expect(page.getByRole("listitem").filter({ hasText: "Gift to Ben" }).getByText("To Ben", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+});
+
+test("My orders Send it posts to pay and shows only fixed error text", async ({ page, baseURL }) => {
+  const { approved } = await seedApprovedGift(page, baseURL);
+  const posted: string[] = [];
+  const alert = page.getByRole("alert").filter({ hasText: /\S/ }); // not Next's empty route announcer
+  await page.route(`**/api/orders/${approved.id}/pay**`, (route) => {
+    posted.push(`${route.request().method()} ${new URL(route.request().url()).search}`);
+    return route.fulfill({ status: 303, headers: { location: "/orders?error=paypal_down" } });
+  });
+  await page.goto("/orders");
+  await page.getByRole("button", { name: /send it/i }).click();
+  await expect(alert).toHaveText("PayPal isn't answering right now. Nothing was charged. Please try again.");
+  expect(posted).toEqual(["POST ?redirect=1"]);
+  // Words in the link are never shown, so a crafted link can't speak for CareCart.
+  await page.goto("/orders?error=Call%20this%20number%20to%20keep%20your%20money%20safe");
+  await expect(alert).toHaveText("Something went wrong. Please try again.");
+  await expect(page.getByText("Call this number")).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
 });

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpeech } from "@/hooks/useSpeech";
 import { parseCommand, type Mode } from "@/lib/speech/commands";
-import { caregiverSentMessage, paymentResultMessage } from "@/lib/speech/messages";
+import { caregiverSentMessage, giftApprovedMessage, paymentResultMessage } from "@/lib/speech/messages";
+import { errorMessage } from "@/lib/errors";
 import type { OptionView, OrderView } from "@/lib/orders/view";
 import { OptionCards } from "./OptionCards";
 import { ReadBack } from "./ReadBack";
@@ -12,7 +13,8 @@ import { DEFAULT_SETTINGS, SettingsBar, loadSettings, saveSettings, type Setting
 
 type Line = { who: "you" | "helper"; text: string };
 type Draft = OrderView & { readBack: string };
-type Phase = "idle" | "options" | "confirm" | "busy" | "waiting";
+// "send": a gift Anna approved is waiting for Rose to say "send it".
+type Phase = "idle" | "options" | "confirm" | "send" | "busy" | "waiting";
 type ConfirmResponse = { outcome: string; approveUrl?: string; caregiverName?: string; emailed?: boolean; reasons?: string[]; message?: string };
 
 const HELP = 'Tell me what you need, like "I need reading glasses". You can say "repeat", "slower", "faster", "cancel" or "help" at any time.';
@@ -21,12 +23,13 @@ const RATE_STEP = 0.15;
 const MIN_RATE = 0.6;
 const MAX_RATE = 1.2;
 
-export function TalkScreen(props: { seniorName: string; caregiverName: string; returnedOrderId: string | null; paymentResult: string | null }) {
-  const { seniorName, caregiverName, returnedOrderId, paymentResult } = props;
+export function TalkScreen(props: { seniorName: string; caregiverName: string; returnedOrderId: string | null; paymentResult: string | null; waitingGift: OrderView | null }) {
+  const { seniorName, caregiverName, returnedOrderId, paymentResult, waitingGift } = props;
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [lines, setLines] = useState<Line[]>([]);
   const [live, setLive] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
+  const [phase, setPhase] = useState<Phase>(waitingGift ? "send" : "idle");
+  const [sendable, setSendable] = useState<OrderView | null>(waitingGift);
   const [options, setOptions] = useState<OptionView[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -93,15 +96,15 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           setOptions(data.options);
           setPhase("options");
         } else {
-          setPhase(draft ? "confirm" : options ? "options" : "idle");
+          setPhase(draft ? "confirm" : options ? "options" : sendable ? "send" : "idle");
         }
         await say(data.reply);
       } catch {
-        setPhase(draft ? "confirm" : "idle");
+        setPhase(draft ? "confirm" : sendable ? "send" : "idle");
         await say("Sorry, I couldn't reach the helper. Please try again.");
       }
     },
-    [sessionId, say, draft, options, router],
+    [sessionId, say, draft, options, sendable, router],
   );
 
   const cancel = useCallback(async () => {
@@ -114,9 +117,53 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       return;
     }
     setOptions(null);
+    setSendable(null);
     setPhase("idle");
     await say("Okay. What else do you need?");
   }, [draft, say]);
+
+  // Rose pays at PayPal for a purchase, or sends an approved gift there.
+  const openPayPal = useCallback(
+    async (approveUrl: string | undefined) => {
+      if (settings.screenReader) {
+        // The app's voice is off, so don't navigate away before the screen reader has read the instructions.
+        setDraft(null);
+        setSendable(null);
+        setPhase("idle");
+        setPayUrl(approveUrl ?? null);
+        await say("Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.");
+        return;
+      }
+      await say("I'm opening PayPal now. Log in, check the total, and press Pay Now. I'll be here when you come back.");
+      window.location.assign(approveUrl ?? "/talk");
+    },
+    [settings.screenReader, say],
+  );
+
+  const sendGift = useCallback(async () => {
+    if (!sendable) return;
+    setPhase("busy");
+    let out: { approveUrl?: string; error?: string };
+    try {
+      const res = await fetch(`/api/orders/${sendable.id}/pay`, { method: "POST" });
+      if (res.status === 401) {
+        router.push("/");
+        return;
+      }
+      out = (await res.json()) as { approveUrl?: string; error?: string };
+    } catch {
+      out = { error: "paypal_down" };
+    }
+    if (out.approveUrl) {
+      await openPayPal(out.approveUrl);
+      return;
+    }
+    // Only a PayPal hiccup is worth trying again; every other answer means this gift can't be sent from here.
+    const retry = out.error === "paypal_down";
+    if (!retry) setSendable(null);
+    setPhase(retry ? "send" : "idle");
+    await say(errorMessage(out.error ?? "unknown") ?? "");
+  }, [sendable, openPayPal, say, router]);
 
   const confirm = useCallback(async () => {
     if (!draft) return;
@@ -134,16 +181,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     }
     switch (out.outcome) {
       case "pay":
-        if (settings.screenReader) {
-          // The app's voice is off, so don't navigate away before the screen reader has read the instructions.
-          setDraft(null);
-          setPhase("idle");
-          setPayUrl(out.approveUrl ?? null);
-          await say("Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.");
-          return;
-        }
-        await say("I'm opening PayPal now. Log in, check the total, and press Pay Now. I'll be here when you come back.");
-        window.location.assign(out.approveUrl ?? "/talk");
+        await openPayPal(out.approveUrl);
         return;
       case "caregiver":
         setDraft(null);
@@ -165,14 +203,14 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
         setPhase("confirm");
         await say(out.message ?? "Sorry, something went wrong. Nothing was charged.");
     }
-  }, [draft, dupAck, say, settings.screenReader, caregiverName]);
+  }, [draft, dupAck, say, openPayPal, caregiverName]);
 
   const handleText = useCallback(
     async (raw: string) => {
       const text = raw.trim();
       if (!text) return;
       setLines((l) => [...l, { who: "you", text }]);
-      const mode: Mode = phase === "options" || phase === "confirm" ? phase : "idle";
+      const mode: Mode = phase === "options" || phase === "confirm" ? phase : phase === "send" ? "confirm" : "idle";
       const cmd = parseCommand(text, mode);
       switch (cmd.type) {
         case "repeat":
@@ -201,7 +239,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           else await speak(lastHelper.current || HELP);
           return;
         case "confirm":
-          await confirm();
+          await (phase === "send" ? sendGift() : confirm());
           return;
         case "select":
           await callAgent(`I'd like option ${cmd.index + 1}.`);
@@ -211,7 +249,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           return;
       }
     },
-    [phase, settings, speak, say, cancel, confirm, callAgent, draft],
+    [phase, settings, speak, say, cancel, confirm, sendGift, callAgent, draft],
   );
 
   useEffect(() => {
@@ -230,23 +268,39 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
       if (o.status === seen.status) return;
       seen.status = o.status;
       const payer = o.payerRole === "caregiver" ? `${caregiverName} paid` : "Your payment went through";
-      if (o.status === "AWAITING_PAYMENT") void say(`${caregiverName} approved your ${o.title} and is paying for it now.`);
-      else if (o.status === "PAID" || o.status === "SHIPPED") {
-        void say(`${payer} for your ${o.title}. It's on the way.`);
+      const finish = () => {
         setWatch(null);
+        setSendable((s) => (s?.id === o.id ? null : s));
         setPhase("idle");
+      };
+      if (o.status === "AWAITING_PAYMENT") {
+        if (o.kind === "gift" && o.payerRole === "senior") {
+          // Anna only approves a gift. Rose sends it herself, so wait for her to say so (unless she is busy with something else).
+          setSendable(o);
+          setPhase((p) => (p === "idle" || p === "waiting" ? "send" : p));
+          void say(giftApprovedMessage(caregiverName, o.recipient));
+        } else void say(`${caregiverName} approved your ${o.title} and is paying for it now.`);
+      } else if (o.status === "PAID" || o.status === "SHIPPED") {
+        void say(o.kind === "gift" ? paymentResultMessage(o, "paid", caregiverName) : `${payer} for your ${o.title}. It's on the way.`);
+        finish();
       } else if (o.status === "DECLINED") {
         void say(`${caregiverName} said not this time.${o.declineReason ? ` The reason was: ${o.declineReason}` : ""}`);
-        setWatch(null);
-        setPhase("idle");
+        finish();
       } else if (o.status === "CANCELLED") {
         void say("The payment wasn't finished, so nothing was charged.");
-        setWatch(null);
-        setPhase("idle");
+        finish();
       }
     }, 5000);
     return () => clearInterval(timer);
   }, [watch, caregiverName, say]);
+
+  // A gift Anna approved while Rose was away: tell her as soon as she arrives.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the one-time announcement on arrival
+    if (waitingGift) void say(giftApprovedMessage(caregiverName, waitingGift.recipient));
+    // Runs once on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Coming back from PayPal: show the result as text (speech may be blocked without a tap).
   useEffect(() => {

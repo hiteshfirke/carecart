@@ -8,6 +8,17 @@ describe("parseCommand", () => {
     }
   });
 
+  it.each(["send it", "yes send it", "Send the money.", "Yes, send it"])("confirms %s in confirm mode", (t) => {
+    expect(parseCommand(t, "confirm")).toEqual({ type: "confirm" });
+  });
+
+  it("does not confirm a longer sentence that starts with send it", () => {
+    for (const t of ["send it later", "send it to Tom", "send the money to Tom"]) {
+      expect(parseCommand(t, "confirm")).toEqual({ type: "say", text: t });
+    }
+    expect(parseCommand("send it", "idle").type).toBe("say");
+  });
+
   it("never confirms ambiguous speech", () => {
     for (const t of ["yes but wait", "yes I think so", "yeah maybe", "yes how much is it", "I guess"]) {
       expect(parseCommand(t, "confirm").type).toBe("say");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftGift, matchTrusted, payGift, trustedRequestLink, type GiftDeps, type PayGiftDeps } from "./gifts";
+import { draftGift, isWaitingGift, matchTrusted, payGift, trustedRequestLink, type GiftDeps, type PayGiftDeps } from "./gifts";
 import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type Payee, type TrustedPerson } from "./db";
 import type { EmailMessage } from "./email";
 import type { CreatePayPalOrderInput } from "./paypal";
@@ -210,10 +210,20 @@ describe("draftGift", () => {
   });
 });
 
+describe("isWaitingGift", () => {
+  const approved = { kind: "gift", status: "AWAITING_PAYMENT", payerRole: "senior", route: "caregiver" } as const;
+  it("is true only for a gift Anna approved that Rose has yet to send", () => {
+    expect(isWaitingGift(approved)).toBe(true);
+    for (const change of [{ route: "self_pay" }, { route: null }, { kind: "purchase" }, { payerRole: "caregiver" }, { payerRole: null }, { status: "PAID" }, { status: "AWAITING_CAREGIVER" }] as const) {
+      expect(isWaitingGift({ ...approved, ...change } as Pick<Order, "kind" | "status" | "payerRole" | "route">)).toBe(false);
+    }
+  });
+});
+
 describe("payGift", () => {
   function paySetup(over: { order?: Partial<Order> | null; trusted?: boolean; paypalFails?: boolean; saveFails?: boolean } = {}) {
     const order = {
-      id: "o1", userId: "rose", kind: "gift", status: "AWAITING_PAYMENT", payerRole: "senior", paypalOrderId: null, totalCents: 3000, merchant: "Sam",
+      id: "o1", userId: "rose", kind: "gift", status: "AWAITING_PAYMENT", payerRole: "senior", route: "caregiver", paypalOrderId: null, totalCents: 3000, merchant: "Sam",
       payee: { trustedPersonId: "t1", name: "Sam", relationship: "grandson", paypalEmail: "sam@example.com" },
       product: { productId: "gift:t1", title: "Gift to Sam", priceCents: 3000, merchant: "Sam" },
       ...over.order,
@@ -278,6 +288,13 @@ describe("payGift", () => {
       expect(waiting.calls.paypal).toHaveLength(0);
     }
     for (const s of [other, purchase]) expect(s.calls.paypal).toHaveLength(0);
+  });
+
+  it("refuses a self-pay gift that already has its own PayPal order", async () => {
+    const { deps, calls } = paySetup({ order: { route: "self_pay", paypalOrderId: "PP-OWN" } });
+    expect(await payGift(deps, household, "o1")).toEqual({ ok: false, code: "not_waiting" });
+    expect(calls.paypal).toHaveLength(0);
+    expect(calls.saved).toHaveLength(0);
   });
 
   it("never pays a gift with no trusted person or PayPal email", async () => {

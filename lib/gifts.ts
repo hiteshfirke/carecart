@@ -117,6 +117,12 @@ export function giftPayPalInput(order: Pick<Order, "id" | "product" | "totalCent
   };
 }
 
+// A gift Anna approved and Rose has yet to send. A gift Rose paid herself already has its own PayPal order from
+// confirm (route "self_pay"), so it never counts: sending it again would orphan that order.
+export function isWaitingGift(o: Pick<Order, "kind" | "status" | "payerRole" | "route">): boolean {
+  return o.kind === "gift" && o.status === "AWAITING_PAYMENT" && o.payerRole === "senior" && o.route === "caregiver";
+}
+
 export type PayGiftDeps = {
   getOrder(id: string): Promise<Order | null>;
   isTrusted(householdId: string, trustedPersonId: string): Promise<boolean>;
@@ -132,7 +138,7 @@ export async function payGift(deps: PayGiftDeps, household: Household, orderId: 
   if (!order || order.userId !== household.senior.id) return { ok: false, code: "not_found" };
   const payee = payablePayee(order);
   if (!payee) return { ok: false, code: "not_found" };
-  if (order.status !== "AWAITING_PAYMENT" || order.payerRole !== "senior") return { ok: false, code: "not_waiting" };
+  if (!isWaitingGift(order)) return { ok: false, code: "not_waiting" };
   if (!(await deps.isTrusted(household.id, payee.trustedPersonId))) return { ok: false, code: "not_trusted" };
 
   let paypal: { paypalOrderId: string; approveUrl: string };
