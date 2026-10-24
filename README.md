@@ -70,7 +70,7 @@ flowchart LR
 - **Webhooks:** `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.DENIED`, verified with `/v1/notifications/verify-webhook-signature`. The raw event bytes are passed to verification unchanged.
 - Order statuses only move forward. The webhook and the return page can both arrive, and the order is still marked paid exactly once.
 
-**Verified in the PayPal sandbox:** Rose's self-pay capture, Anna's approve-and-pay capture from the email link, the scam block with its alert email, and USPS tracking stored on both PayPal orders. On Oct 24, 2026, a $1.00 gift order paid by the Rose buyer was captured `COMPLETED`, with Sam's sandbox account as the payee.
+**Verified in the PayPal sandbox:** Rose's self-pay capture, Anna's approve-and-pay capture from the email link, the scam block with its alert email, and USPS tracking stored on both PayPal orders. On Oct 24, 2026, a $1.00 gift order (made with the `gift:spike` script) paid by the Rose buyer was captured `COMPLETED`, with Sam's sandbox account as the payee. The app's own gift flow is covered by unit and browser tests; its live run is Part 13 of `docs/manual-test.md`.
 
 The PayPal REST API is called directly. The hosted sandbox MCP server was failing for every hackathon participant at build time, and PayPal staff confirmed that direct REST calls are fine.
 

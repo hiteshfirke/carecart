@@ -43,7 +43,7 @@ Everything works by voice, by keyboard (Space, 1–3, Enter, Esc) and with a scr
 - **Hosting:** Vercel in Singapore, next to the Neon database, which halved response times.
 - **Quality:**
   - 277 unit tests, and 39 Playwright end-to-end tests with axe accessibility scans, run against a separate test database.
-  - A 41-check shopping test passed on the live site, with every money path verified against the real PayPal sandbox. A gift paid by Rose's sandbox buyer was captured with Sam's sandbox account as the payee.
+  - A 41-check shopping test passed on the live site, with every shopping money path verified against the real PayPal sandbox. A $1.00 gift order paid by Rose's sandbox buyer was captured into Sam's sandbox account.
 
 ## Challenges we ran into
 - **PayPal's hosted MCP server failed** for every request during the hackathon ("Unsupported cache mode"), so we call the PayPal REST API directly; PayPal staff confirmed that's fine.
@@ -60,7 +60,7 @@ Everything works by voice, by keyboard (Space, 1–3, Enter, Esc) and with a scr
 
 ## Accomplishments that we're proud of
 - The model **cannot** move money: not by prompt injection in a product title, not by a scammer's script. And it cannot add a person to Rose's list either, so a fake grandson can't be made payable. That's enforced by what its tools can do, not by a prompt.
-- Every money path works end to end in the PayPal sandbox: self-pay capture, caregiver approval and capture from an email link, scam block with an alert, shipment tracking on the PayPal order, and a gift paid by Rose and captured into a family member's PayPal account.
+- The shopping money paths work end to end in the PayPal sandbox: self-pay capture, caregiver approval and capture from an email link, scam block with an alert, and shipment tracking on the PayPal order. A $1.00 gift order paid by Rose's sandbox buyer was also captured into Sam's sandbox account.
 - Accessibility was designed in from the first screen: large text, 64px buttons, tap to talk, full keyboard control and screen-reader mode.
 
 ## What we learned

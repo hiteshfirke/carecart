@@ -479,7 +479,7 @@ export function canActOnRequest(order, viewer): boolean {
 | Live service check | `npm run smoke [channel3\|paypal\|email\|ai\|agent\|gift\|voice]` | Calls the real services through the app's own functions. `gift` sends a scam-shaped gift request to the real model and checks it still calls `draft_gift` |
 | Real money paths without Claude | `npm run demo:order -- selfpay\|caregiver\|scam` | Creates the draft the agent would create, then runs the real `confirmOrder` |
 
-The browser tests mock `/api/agent`, so they test the UI's logic without spending AI credits. The money paths were also checked by hand against the real PayPal sandbox: self-pay capture, Anna's approval and capture, the scam block, tracking on both PayPal orders, and (on Oct 24, 2026) a gift paid by Rose's buyer and captured `COMPLETED` with Sam's sandbox account as the payee.
+The browser tests mock `/api/agent`, so they test the UI's logic without spending AI credits. The money paths were also checked by hand against the real PayPal sandbox: self-pay capture, Anna's approval and capture, the scam block, tracking on both PayPal orders, and (on Oct 24, 2026) a $1.00 gift order, made with the `gift:spike` script, paid by Rose's buyer and captured `COMPLETED` with Sam's sandbox account as the payee. The app's own gift flow has unit and browser tests; its live run is Part 13 of the manual test.
 
 ---
 
@@ -495,7 +495,7 @@ The browser tests mock `/api/agent`, so they test the UI's logic without spendin
 | Channel3 | Real products from real stores, and a sponsor of the hackathon |
 | Caregiver pays with her own PayPal | Saved payment methods are blocked in the sandbox |
 | A gift is an order with `kind = 'gift'` | It reuses the state machine, audit log, PayPal return and webhook, polling and My orders, so shopping didn't change |
-| A gift's money goes straight to the family member (`payee.email_address`) | One payment, no forwarding and no payout step. Verified in the PayPal sandbox on Oct 24, 2026 |
+| A gift's money goes straight to the family member (`payee.email_address`) | One payment, no forwarding and no payout step. A $1.00 test order was captured into Sam's sandbox account on Oct 24, 2026 |
 | Anna's yes on a gift hands the payment back to Rose | It's Rose's money to send. Anna's job is the safety check, not paying |
 | Only Anna adds people to the trusted list; the AI can't | A scammer's made-up "grandson" must never become someone money can go to |
 | Demo households by cookie, with no sign-up | Judges can try it in one click |
