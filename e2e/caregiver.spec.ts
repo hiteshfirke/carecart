@@ -180,6 +180,9 @@ test("a gift request says Rose will send it herself", async ({ page }) => {
   // A crafted link cannot claim an approval that did not happen.
   await page.goto(`${link}&approved=1`);
   await expect(page.getByRole("button", { name: /approve/i })).toBeVisible();
+  // Money goes to Sam, so the request page says who gets it, not who it is "from".
+  await expect(page.getByText("To Sam. Status: waiting for Anna to approve.")).toBeVisible();
+  await expect(page.getByText(/^From /)).toHaveCount(0);
   await expect(page.getByText(APPROVED)).toHaveCount(0);
 
   await page.getByRole("button", { name: /approve/i }).click();

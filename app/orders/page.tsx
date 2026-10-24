@@ -30,11 +30,18 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               </p>
             ) : null}
             {o.canSend ? (
-              <form method="post" action={`/api/orders/${o.id}/pay?redirect=1`} className="mt-3">
-                <button className="btn btn-primary w-full" aria-label={`Send it to ${o.recipient}`}>
-                  Send it
-                </button>
-              </form>
+              <div className="mt-3 flex flex-col gap-3">
+                <form method="post" action={`/api/orders/${o.id}/pay?redirect=1`}>
+                  <button className="btn btn-primary w-full" aria-label={`Send it to ${o.recipient}`}>
+                    Send it
+                  </button>
+                </form>
+                <form method="post" action={`/api/orders/${o.id}/cancel?redirect=1`}>
+                  <button className="btn w-full" aria-label={`Cancel the gift to ${o.recipient}`}>
+                    Cancel
+                  </button>
+                </form>
+              </div>
             ) : null}
           </li>
         ))}

@@ -54,7 +54,7 @@ export default async function RequestPage({
         {view.quantity > 1 ? ` (${view.quantity} items)` : ""}
       </p>
       <p>
-        From {view.merchant}. Status: {view.statusWords}.
+        {view.kind === "gift" ? `To ${view.recipient ?? view.merchant}` : `From ${view.merchant}`}. Status: {view.statusWords}.
       </p>
 
       {view.summary ? (

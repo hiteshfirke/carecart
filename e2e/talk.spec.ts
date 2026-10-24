@@ -798,3 +798,114 @@ test("a waiting gift has a visible Send it to Sam button that sends it", async (
   await expect(page).toHaveURL(PAYPAL);
   expect(pays).toEqual([`POST /api/orders/${approved.id}/pay`]);
 });
+
+test("saying cancel drops a waiting gift, but a plain no does not", async ({ page, baseURL }) => {
+  await spyOnSpeech(page);
+  const { approved } = await seedApprovedGift(page, baseURL);
+  await page.goto("/talk");
+  await expect(page.getByRole("status")).toContainText(APPROVED);
+  const box = page.getByLabel("Or type what you need");
+  // "No" may be answering the helper, so it never throws away a gift Anna approved.
+  await box.fill("no");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText("Okay. What else do you need?");
+  await expect(page.getByRole("button", { name: "Send it to Sam" })).toBeVisible();
+  expect((await db.getOrder(approved.id))?.status).toBe("AWAITING_PAYMENT");
+  await box.fill("cancel");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText("Okay, I cancelled the gift to Sam. Nothing was sent.");
+  await expect(page.getByRole("button", { name: "Send it to Sam" })).toHaveCount(0);
+  expect((await db.getOrder(approved.id))?.status).toBe("CANCELLED");
+});
+
+test("My orders can cancel a waiting gift", async ({ page, baseURL }) => {
+  const { approved } = await seedApprovedGift(page, baseURL);
+  await page.goto("/orders");
+  const item = page.getByRole("listitem").filter({ hasText: "Gift to Sam" });
+  const cancel = item.getByRole("button", { name: "Cancel the gift to Sam", exact: true });
+  await expect(cancel).toBeVisible();
+  expect((await cancel.boundingBox())!.height).toBeGreaterThanOrEqual(64);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+  await cancel.click();
+  await expect(page).toHaveURL(/\/orders$/);
+  await expect(item.getByText("Status: cancelled, and no payment was made.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /send it|cancel the gift/i })).toHaveCount(0);
+  expect((await db.getOrder(approved.id))?.status).toBe("CANCELLED");
+  // Cancelling again lands back on My orders with a fixed message, not a JSON page.
+  const again = await page.request.post(`/api/orders/${approved.id}/cancel?redirect=1`, { maxRedirects: 0 });
+  expect(again.status()).toBe(303);
+  expect(again.headers().location).toMatch(/\/orders\?error=not_waiting$/);
+  // Without redirect=1 the JSON answer is unchanged.
+  const json = await page.request.post(`/api/orders/${approved.id}/cancel`);
+  expect(json.status()).toBe(409);
+  expect(await json.json()).toEqual({ error: "not_cancellable", status: "CANCELLED" });
+});
+
+test("screen-reader mode tells Rose her gift is ready to send at PayPal", async ({ page, baseURL }) => {
+  await seedApprovedGift(page, baseURL);
+  await page.route("**/api/orders/*/pay", (route) => route.fulfill({ json: { approveUrl: PAYPAL } }));
+  await page.goto("/talk");
+  await page.getByRole("button", { name: "Screen reader mode" }).click();
+  await page.getByRole("button", { name: "Send it to Sam", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Continue to PayPal" })).toBeFocused();
+  await expect(page.getByRole("status")).toHaveText(
+    "Your gift to Sam is ready to send. Use the Continue to PayPal link, log in, check the amount, and press Pay Now.",
+  );
+  await expect(page).toHaveURL(/\/talk/);
+});
+
+test("an approval heard while a reply is still being spoken waits if a read-back opens first", async ({ page }) => {
+  // Browser speech that only ends when it is interrupted (as Chrome does) or the test lets it finish.
+  await page.addInitScript(() => {
+    let held: SpeechSynthesisUtterance[] = [];
+    let holding = true;
+    const finish = () => {
+      const now = held;
+      held = [];
+      for (const u of now) u.onend?.(new Event("end") as SpeechSynthesisEvent);
+    };
+    window.speechSynthesis.speak = (u: SpeechSynthesisUtterance) => {
+      if (holding) held.push(u);
+      else setTimeout(() => u.onend?.(new Event("end") as SpeechSynthesisEvent), 20);
+    };
+    window.speechSynthesis.cancel = finish;
+    (window as unknown as { __release(): void }).__release = () => {
+      holding = false;
+      finish();
+    };
+  });
+  await page.route("**/api/agent", (route) => {
+    const { text } = route.request().postDataJSON() as { text: string };
+    const next = /sam/i.test(text) ? giftDraft : { ...draft, id: TEA };
+    return route.fulfill({ json: { sessionId: SESSION, reply: "Let me read that back to you.", options: null, draft: next } });
+  });
+  await page.route(`**/api/orders/${ORDER}/confirm`, (route) => route.fulfill({ json: { outcome: "caregiver", caregiverName: "Anna", emailed: true } }));
+  let approved = false;
+  let polls = 0;
+  await page.route(`**/api/orders/${ORDER}`, (route) => {
+    if (approved) polls++;
+    const status = approved ? { status: "AWAITING_PAYMENT", payerRole: "senior" } : { status: "AWAITING_CAREGIVER", payerRole: null };
+    return route.fulfill({ json: { ...giftDraft, ...status, statusWords: "waiting" } });
+  });
+  await page.route(`**/api/orders/${TEA}/cancel`, (route) => route.fulfill({ json: {} }));
+  await startAsRose(page);
+  const box = await askForGift(page);
+  await box.fill("confirm");
+  await box.press("Enter");
+  await expect(page.getByRole("status")).toContainText("needs Anna's OK"); // still being spoken
+  approved = true;
+  await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(0);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the gift is waiting for that reply to end
+  // Rose asks for something else; its read-back interrupts the reply the approval was waiting on.
+  await box.fill("I need green tea");
+  await box.press("Enter");
+  await expect(page.getByRole("heading", { name: /check your order/i })).toBeFocused();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const conversation = page.getByRole("region", { name: "Conversation" });
+  await expect(conversation.getByText(APPROVED)).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __release(): void }).__release());
+  await box.fill("cancel");
+  await box.press("Enter");
+  await expect(conversation.getByText(APPROVED)).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Send it to Sam" })).toBeVisible();
+});

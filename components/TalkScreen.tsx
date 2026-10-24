@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSpeech } from "@/hooks/useSpeech";
-import { parseCommand, type Mode } from "@/lib/speech/commands";
+import { normalize, parseCommand, type Mode } from "@/lib/speech/commands";
 import { caregiverSentMessage, giftApprovedMessage, paymentResultMessage } from "@/lib/speech/messages";
 import { errorMessage } from "@/lib/errors";
 import type { OptionView, OrderView } from "@/lib/orders/view";
@@ -137,15 +137,32 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     await say("Okay. What else do you need?");
   }, [draft, say]);
 
+  // Rose changed her mind about a gift Anna approved. Nothing has been paid, so it is simply cancelled.
+  const cancelGift = useCallback(async () => {
+    const g = giftRef.current;
+    if (!g) return;
+    const res = await fetch(`/api/orders/${g.id}/cancel`, { method: "POST" }).catch(() => null);
+    if (!res?.ok) {
+      await say("Sorry, I couldn't cancel the gift just now. Please try again.");
+      return;
+    }
+    dropGift(g.id);
+    await say(`Okay, I cancelled the gift to ${g.recipient ?? "them"}. Nothing was sent.`);
+  }, [dropGift, say]);
+
   // Rose pays at PayPal for a purchase, or sends an approved gift there.
   const openPayPal = useCallback(
-    async (approveUrl: string | undefined) => {
+    async (approveUrl: string | undefined, order: Pick<OrderView, "kind" | "recipient">) => {
       if (settings.screenReader) {
         // The app's voice is off, so don't navigate away before the screen reader has read the instructions.
         setDraft(null);
         setPhase("idle");
         setPayUrl(approveUrl ?? null);
-        await say("Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.");
+        await say(
+          order.kind === "gift"
+            ? `Your gift to ${order.recipient ?? "them"} is ready to send. Use the Continue to PayPal link, log in, check the amount, and press Pay Now.`
+            : "Your order is ready to pay. Use the Continue to PayPal link, log in, check the total, and press Pay Now.",
+        );
         return;
       }
       await say("I'm opening PayPal now. Log in, check the total, and press Pay Now. I'll be here when you come back.");
@@ -171,7 +188,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     }
     if (out.approveUrl) {
       dropGift(g.id);
-      await openPayPal(out.approveUrl);
+      await openPayPal(out.approveUrl, g);
       return;
     }
     // Only a PayPal hiccup is worth trying again; every other answer means this gift can't be sent from here.
@@ -196,7 +213,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
     }
     switch (out.outcome) {
       case "pay":
-        await openPayPal(out.approveUrl);
+        await openPayPal(out.approveUrl, draft);
         return;
       case "caregiver":
         setDraft(null);
@@ -247,7 +264,9 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           await say(HELP);
           return;
         case "cancel":
-          await cancel();
+          // Only the word "cancel" drops an approved gift: a "no" may be answering the helper's question.
+          if (!draft && !options && giftRef.current && normalize(text) === "cancel") await cancelGift();
+          else await cancel();
           return;
         case "back":
           if (draft) await cancel();
@@ -270,7 +289,7 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
           return;
       }
     },
-    [phase, settings, speak, say, cancel, confirm, sendGift, callAgent, draft, options],
+    [phase, settings, speak, say, cancel, cancelGift, confirm, sendGift, callAgent, draft, options],
   );
 
   useEffect(() => {
@@ -315,10 +334,22 @@ export function TalkScreen(props: { seniorName: string; caregiverName: string; r
   // Tell Rose once about a gift Anna approved, on arrival or when Anna answers. Not over an open read-back, options list,
   // PayPal link or call in progress: it waits until those are done, and then until the reply being spoken has finished.
   const giftHeld = Boolean(draft || options || payUrl) || phase === "busy";
+  const giftHeldRef = useRef(giftHeld);
+  useEffect(() => {
+    giftHeldRef.current = giftHeld;
+  }, [giftHeld]);
   useEffect(() => {
     if (!gift || giftHeld || announcedGift.current === gift.id) return;
     announcedGift.current = gift.id;
-    void spoken.current.then(() => say(giftApprovedMessage(caregiverName, gift.recipient)));
+    void spoken.current.then(() => {
+      // Something may have opened, or the gift gone, while that reply was spoken. Then wait: this effect runs again
+      // when the hold lifts.
+      if (giftHeldRef.current || giftRef.current?.id !== gift.id) {
+        if (announcedGift.current === gift.id) announcedGift.current = null;
+        return;
+      }
+      return say(giftApprovedMessage(caregiverName, gift.recipient));
+    });
   }, [gift, giftHeld, caregiverName, say]);
 
   // Coming back from PayPal: show the result as text (speech may be blocked without a tap).
