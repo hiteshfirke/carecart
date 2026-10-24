@@ -264,7 +264,7 @@ Details worth knowing:
 | Rule | Checks | Route |
 |---|---|---|
 | **S1** scam product | Title or category matches gift card, prepaid card, crypto, money order, wire transfer, Western Union, MoneyGram | **blocked** |
-| **S1** scam phrase | Rose said: gift card, wire money, bitcoin, IRS, bail, warrant, "keep this secret", "don't tell", "account suspended", "the bank called", "grandson in trouble". **For gifts only**, also: jail, arrested, lawyer, accident, hospital, "new phone number", courier, "send it today" | **blocked** |
+| **S1** scam phrase | Rose said: gift card, wire money, bitcoin, IRS, bail, warrant, "keep this secret", "don't tell", "account suspended", "the bank called", "grandson in trouble". **For gifts only**, also: jail(ed), arrest(ed) (so "under arrest"), lawyer(s), accident(s), police, hospital, "new phone number", courier, "send it today" | **blocked** |
 | **S1** pressure | Rose said "urgent" | caregiver |
 | **S2** | total > Rose's self-pay limit (default **$25**) | caregiver |
 | **S3** | paid today + total > daily cap (default **$60**, "today" in America/Los_Angeles) | caregiver |
@@ -446,10 +446,10 @@ export function canActOnRequest(order, viewer): boolean {
 
 **Confirming** goes through the same `confirmOrder`. A self-pay gift gets a PayPal order that pays the family member, and Rose approves it. A gift over her limit or the daily cap emails Anna ("Rose needs your OK to send $40.00 to Sam").
 
-**Anna's yes hands the payment back to Rose.** For a gift, `approveRequest` moves the order to `AWAITING_PAYMENT` with `payerRole: "senior"` and creates no PayPal order. Rose's polling screen says "Anna said yes to your gift to Sam. Say send it, and I'll open PayPal" and shows a **Send it to Sam** button. Anna's pages say "approved, waiting for Rose to send it"; Rose's say "…for you to send it".
+**Anna's yes hands the payment back to Rose.** For a gift, `approveRequest` first checks the person is still on the list, then moves the order to `AWAITING_PAYMENT` with `payerRole: "senior"` and creates no PayPal order. Rose's polling screen says "Anna said yes to your gift to Sam. Say send it, and I'll open PayPal" and shows a **Send it to Sam** button. Anna's pages say "approved, waiting for Rose to send it"; Rose's say "…for you to send it".
 - **A waiting gift** is a gift that Anna approved (route `caregiver`), is `AWAITING_PAYMENT`, and has Rose as the payer (`isWaitingGift`). Only those can be sent. A gift Rose paid for herself already has its own PayPal order, so sending it again would orphan that one.
-- **It doesn't expire**, and it survives Rose leaving the screen: `/talk` announces it when it loads, and My orders shows a **Send it** button. The announcement waits while a read-back or an options list is open, so it never collides with a purchase.
-- **"Send it" calls `POST /api/orders/[id]/pay` (`payGift`).** It checks that the gift is Rose's, is waiting, and that the person is **still on the list**. If Anna removed them, it refuses. It doesn't re-run the rules or the cap, because Anna approved that exact amount and person. Asking twice returns the same PayPal order, because the request id is fixed (`create-<orderId>-senior-gift`).
+- **It doesn't expire**, and it survives Rose leaving the screen: `/talk` announces it when it loads, and My orders shows a **Send it** button. The announcement is held while a read-back, an options list, a PayPal link or a helper call is open, and is spoken once they close (checked again just before it is spoken). Rose can also say "cancel", or press **Cancel** in My orders, to drop the gift; nothing is sent.
+- **"Send it" calls `POST /api/orders/[id]/pay` (`payGift`).** It checks that the gift is Rose's, is waiting, and that the person is **still on the list**. If Anna removed them, it refuses and cancels the gift, so it stops waiting. If PayPal ever answers with a different order than the one already saved, it refuses instead of swapping, so Sam can never be paid twice. It doesn't re-run the rules or the cap, because Anna approved that exact amount and person. Asking twice returns the same PayPal order, because the request id is fixed (`create-<orderId>-senior-gift`).
 
 **The "Add Sam" link** lets Anna act from her phone, so it is narrow on purpose. It is single-use, valid for 7 days, and only for that one name. It opens a form that asks only for the PayPal email (and an optional relationship); the name comes from the saved request, never from the URL. The token is compared with `timingSafeEqual`, like the caregiver link. Removing people needs Anna's own page.
 
@@ -495,7 +495,7 @@ The browser tests mock `/api/agent`, so they test the UI's logic without spendin
 | Channel3 | Real products from real stores, and a sponsor of the hackathon |
 | Caregiver pays with her own PayPal | Saved payment methods are blocked in the sandbox |
 | A gift is an order with `kind = 'gift'` | It reuses the state machine, audit log, PayPal return and webhook, polling and My orders, so shopping didn't change |
-| A gift's money goes straight to the family member (`payee.email_address`) | One payment, no forwarding and no payout step. A $1.00 test order was captured into Sam's sandbox account on Oct 24, 2026 |
+| A gift's money goes straight to the family member (`payee.email_address`) | One payment, no forwarding and no payout step. On Oct 24, 2026 a gift was captured `COMPLETED` with Sam's sandbox account as the payee (a $1.00 test order made with the `gift:spike` script) |
 | Anna's yes on a gift hands the payment back to Rose | It's Rose's money to send. Anna's job is the safety check, not paying |
 | Only Anna adds people to the trusted list; the AI can't | A scammer's made-up "grandson" must never become someone money can go to |
 | Demo households by cookie, with no sign-up | Judges can try it in one click |
