@@ -41,9 +41,19 @@ describe("view helpers", () => {
       expect(statusWords("PAID", "Anna")).toBe("paid, and the store is getting it ready");
       expect(statusWords("AWAITING_PAYMENT", "Anna", "purchase")).toBe("waiting for the PayPal payment");
     });
+    it("tells the caregiver that Rose is the one who sends the approved gift", () => {
+      expect(statusWords("AWAITING_PAYMENT", "Anna", "gift", "Rose")).toBe("approved, waiting for Rose to send it");
+      expect(statusWords("AWAITING_PAYMENT", "Anna", "purchase", "Rose")).toBe("waiting for the PayPal payment");
+      expect(statusWords("PAID", "Anna", "gift", "Rose")).toBe("sent");
+    });
     it("shows a gift order with the person as the recipient and no store name", () => {
       const view = toOrderView({ id: "o1", ...gift, status: "PAID", flags: [], tracking: null, declineReason: null, payerRole: "senior", summary: null } as unknown as Order, "Anna");
       expect(view).toMatchObject({ kind: "gift", recipient: "Sam", merchant: "Sam", statusWords: "sent" });
+    });
+    it("words an approved gift for the caregiver when given the senior's name", () => {
+      const waiting = { id: "o3", ...gift, status: "AWAITING_PAYMENT", flags: [], tracking: null, declineReason: null, payerRole: "senior", summary: null } as unknown as Order;
+      expect(toOrderView(waiting, "Anna").statusWords).toBe("approved, waiting for you to send it");
+      expect(toOrderView(waiting, "Anna", "Rose").statusWords).toBe("approved, waiting for Rose to send it");
     });
     it("shows a purchase with no recipient", () => {
       const view = toOrderView({ id: "o2", product, quantity: 1, totalCents: 1000, merchant: "walmart.com", kind: "purchase", payee: null, status: "PAID", flags: [], tracking: null, declineReason: null, payerRole: "senior", summary: null } as unknown as Order, "Anna");

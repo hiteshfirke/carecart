@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getHouseholdByUser, getOrder, userUtterances } from "@/lib/db";
 import { currentHousehold } from "@/lib/demo";
 import { canActOnRequest } from "@/lib/caregiver";
+import { isWaitingGift } from "@/lib/gifts";
 import { formatUsd } from "@/lib/money";
 import { toOrderView } from "@/lib/orders/view";
 
@@ -31,10 +32,11 @@ export default async function RequestPage({
   if (!household) notFound();
 
   const { senior, caregiver } = household;
-  const view = toOrderView(order, caregiver.name);
+  const view = toOrderView(order, caregiver.name, senior.name);
   const said = order.sessionId ? (await userUtterances(order.sessionId)).slice(-5) : [];
   const canApprove = order.status === "AWAITING_CAREGIVER" || (order.status === "AWAITING_PAYMENT" && order.payerRole === "caregiver");
-  const banner = sp.payment ? BANNERS[sp.payment] : sp.approved === "1" && order.kind === "gift" ? GIFT_APPROVED : undefined;
+  // The approval banner is for a gift that really was approved, so a crafted ?approved=1 shows nothing.
+  const banner = sp.payment ? BANNERS[sp.payment] : sp.approved === "1" && isWaitingGift(order) ? GIFT_APPROVED : undefined;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 p-4">

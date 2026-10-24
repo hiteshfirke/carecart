@@ -47,7 +47,8 @@ export function readBack(o: Pick<Order, "product" | "quantity" | "totalCents" | 
   return `You're buying ${what}, for ${speakUsd(o.totalCents)} in total, from ${merchantName(o.merchant)}. Say "confirm" or press Confirm to continue, or say "cancel".`;
 }
 
-export function statusWords(status: OrderStatus, caregiverName: string, kind: OrderKind = "purchase"): string {
+// seniorName is for words read by the caregiver, where an approved gift waits for the senior, not for "you".
+export function statusWords(status: OrderStatus, caregiverName: string, kind: OrderKind = "purchase", seniorName?: string): string {
   switch (status) {
     case "DRAFT":
       return "not confirmed yet";
@@ -56,7 +57,7 @@ export function statusWords(status: OrderStatus, caregiverName: string, kind: Or
     case "AWAITING_CAREGIVER":
       return `waiting for ${caregiverName} to approve`;
     case "AWAITING_PAYMENT":
-      return kind === "gift" ? "approved, waiting for you to send it" : "waiting for the PayPal payment";
+      return kind === "gift" ? `approved, waiting for ${seniorName ?? "you"} to send it` : "waiting for the PayPal payment";
     case "PAID":
       return kind === "gift" ? "sent" : "paid, and the store is getting it ready";
     case "SHIPPED":
@@ -70,7 +71,7 @@ export function statusWords(status: OrderStatus, caregiverName: string, kind: Or
   }
 }
 
-export function toOrderView(o: Order, caregiverName: string): OrderView {
+export function toOrderView(o: Order, caregiverName: string, seniorName?: string): OrderView {
   return {
     id: o.id,
     title: o.product.title,
@@ -83,7 +84,7 @@ export function toOrderView(o: Order, caregiverName: string): OrderView {
     kind: o.kind,
     recipient: o.payee?.name ?? null,
     status: o.status,
-    statusWords: statusWords(o.status, caregiverName, o.kind),
+    statusWords: statusWords(o.status, caregiverName, o.kind, seniorName),
     flags: o.flags.map((f) => f.message),
     tracking: o.tracking,
     declineReason: o.declineReason,

@@ -10,11 +10,15 @@ const MESSAGES = {
   order_not_found: "Order not found.",
   not_shippable: "Only paid orders can be shipped.",
   tracking_rejected: "PayPal didn't accept the tracking number. Please try again.",
+  bad_person: "Please enter a name and a valid PayPal email address.",
+  person_exists: "That name is already on the list.",
+  link_invalid: "This link has expired.",
+  link_used: "This person has already been added.",
 } as const;
 
 export type ErrorCode = keyof typeof MESSAGES;
 
 export function errorMessage(code: string | undefined): string | null {
   if (!code) return null;
-  return code in MESSAGES ? MESSAGES[code as ErrorCode] : "Something went wrong. Please try again.";
+  return Object.hasOwn(MESSAGES, code) ? MESSAGES[code as ErrorCode] : "Something went wrong. Please try again.";
 }

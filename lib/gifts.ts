@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 import type { Household, Order, OrderPatch, Payee, Role, TransitionOutcome, TrustedPerson, TrustedRequest } from "@/lib/db";
 import type { OrderStatus } from "@/lib/orders/state";
 import type { CreateGiftInput, CreatePayPalOrderInput } from "@/lib/paypal";
@@ -49,6 +51,23 @@ export function matchTrusted(people: TrustedPerson[], spoken: string): TrustedPe
 
 export function trustedRequestLink(appUrl: string, r: Pick<TrustedRequest, "id" | "token">): string {
   return `${appUrl}/caregiver/people/add?r=${r.id}&t=${encodeURIComponent(r.token)}`;
+}
+
+export const PersonForm = z.object({
+  name: z.string().trim().min(1).max(40),
+  relationship: z.string().trim().max(30).optional(),
+  paypalEmail: z.email(),
+});
+
+// The add-person link works without Rose's cookie, so the random token is the only proof. Used is told only after the
+// token matches, and an expired link looks like a wrong one.
+export function canUseTrustedRequest(r: TrustedRequest | null, token: string | null, now: Date): "ok" | "used" | "invalid" {
+  if (!r || !token) return "invalid";
+  const given = Buffer.from(token);
+  const expected = Buffer.from(r.token);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return "invalid";
+  if (r.usedAt) return "used";
+  return r.expiresAt <= now ? "invalid" : "ok";
 }
 
 // The AI only names who Rose meant. Who gets paid always comes from the trusted list.

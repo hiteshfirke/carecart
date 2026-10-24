@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { draftGift, isWaitingGift, matchTrusted, payGift, trustedRequestLink, type GiftDeps, type PayGiftDeps } from "./gifts";
-import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type Payee, type TrustedPerson } from "./db";
+import { canUseTrustedRequest, draftGift, isWaitingGift, matchTrusted, payGift, PersonForm, trustedRequestLink, type GiftDeps, type PayGiftDeps } from "./gifts";
+import { DEMO_ADDRESS, type Household, type Order, type OrderPatch, type Payee, type TrustedPerson, type TrustedRequest } from "./db";
 import type { EmailMessage } from "./email";
 import type { CreatePayPalOrderInput } from "./paypal";
 import { GIFT_SCAM_MESSAGE } from "./safety/rules";
@@ -86,6 +86,56 @@ describe("matchTrusted", () => {
 describe("trustedRequestLink", () => {
   it("carries the request id and the encoded token", () => {
     expect(trustedRequestLink("https://app.test", { id: "r1", token: "a+b/c" })).toBe("https://app.test/caregiver/people/add?r=r1&t=a%2Bb%2Fc");
+  });
+});
+
+describe("canUseTrustedRequest", () => {
+  const now = new Date("2026-10-23T12:00:00Z");
+  const request: TrustedRequest = {
+    id: "r1",
+    householdId: "h1",
+    name: "Tom",
+    token: "secret-token",
+    createdAt: new Date("2026-10-22T12:00:00Z"),
+    expiresAt: new Date("2026-10-29T12:00:00Z"),
+    usedAt: null,
+  };
+  it("is ok for the matching token before it expires", () => {
+    expect(canUseTrustedRequest(request, "secret-token", now)).toBe("ok");
+  });
+  it("is invalid for a wrong token, a missing token or no request", () => {
+    expect(canUseTrustedRequest(request, "secret-tokex", now)).toBe("invalid");
+    expect(canUseTrustedRequest(request, "short", now)).toBe("invalid");
+    expect(canUseTrustedRequest(request, "", now)).toBe("invalid");
+    expect(canUseTrustedRequest(request, null, now)).toBe("invalid");
+    expect(canUseTrustedRequest(null, "secret-token", now)).toBe("invalid");
+  });
+  it("is invalid once the request has expired", () => {
+    expect(canUseTrustedRequest(request, "secret-token", new Date("2026-10-29T12:00:00Z"))).toBe("invalid");
+    expect(canUseTrustedRequest(request, "secret-token", new Date("2026-10-30T12:00:00Z"))).toBe("invalid");
+  });
+  it("is used when the link was already used", () => {
+    expect(canUseTrustedRequest({ ...request, usedAt: new Date("2026-10-23T11:00:00Z") }, "secret-token", now)).toBe("used");
+  });
+  it("checks the token before the used flag, so a wrong token on a used link tells nothing", () => {
+    expect(canUseTrustedRequest({ ...request, usedAt: new Date("2026-10-23T11:00:00Z") }, "wrong-token!", now)).toBe("invalid");
+  });
+});
+
+describe("PersonForm", () => {
+  it("trims the name and relationship and accepts a PayPal email", () => {
+    expect(PersonForm.parse({ name: "  Ben ", relationship: " neighbor ", paypalEmail: "ben@example.com" })).toEqual({ name: "Ben", relationship: "neighbor", paypalEmail: "ben@example.com" });
+  });
+  it("makes the relationship optional", () => {
+    expect(PersonForm.safeParse({ name: "Ben", paypalEmail: "ben@example.com" }).success).toBe(true);
+    expect(PersonForm.safeParse({ name: "Ben", relationship: "", paypalEmail: "ben@example.com" }).success).toBe(true);
+  });
+  it("rejects an empty or very long name, a long relationship, and a bad email", () => {
+    expect(PersonForm.safeParse({ name: "   ", paypalEmail: "ben@example.com" }).success).toBe(false);
+    expect(PersonForm.safeParse({ name: "B".repeat(41), paypalEmail: "ben@example.com" }).success).toBe(false);
+    expect(PersonForm.safeParse({ name: "Ben", relationship: "r".repeat(31), paypalEmail: "ben@example.com" }).success).toBe(false);
+    expect(PersonForm.safeParse({ name: "Ben", paypalEmail: "not-an-email" }).success).toBe(false);
+    expect(PersonForm.safeParse({ name: "Ben" }).success).toBe(false);
   });
 });
 
